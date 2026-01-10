@@ -3,7 +3,13 @@ name = "playwrightmd"
 version = "0.1.0"
 description = "Convert HTML to Markdown using Playwright for JS-rendered content"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
+
+[project.urls]
+Homepage = "https://github.com/tizee/playwrightmd"
+Repository = "https://github.com/tizee/playwrightmd"
+Issues = "https://github.com/tizee/playwrightmd/issues"
 dependencies = [
     "beautifulsoup4>=4.14.3",
     "lxml>=6.0.2",
