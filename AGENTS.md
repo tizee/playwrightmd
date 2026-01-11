@@ -1,19 +1,74 @@
-# playwrightmd - Agent Documentation
+# AGENTS.md - Development Guide for playwrightmd
 
-> HTML-to-Markdown converter using Playwright for JavaScript-rendered content
+This guide provides AI coding assistants with essential commands, patterns, and conventions for working in the playwrightmd codebase.
 
-## Quick Overview
+**Quick reference**: Build/run commands • Safety rules • Architecture map • Core functions
 
-**playwrightmd** is a Python CLI tool that converts web pages to clean Markdown. It uses Playwright to render JavaScript-heavy pages (SPAs, React apps, etc.) and extracts clean content by removing navigation, sidebars, and boilerplate.
+---
 
-### Key Capabilities
-- Renders JavaScript content via headless Chromium
-- Bypasses bot detection (Cloudflare, etc.)
-- Smart content extraction (removes nav, sidebars, headers, footers)
-- Supports URL, local file, or stdin input
-- CSS selector targeting for specific content areas
+## Safety Checklist
 
-## Project Structure
+Before any operation:
+
+- Prefer non-destructive actions; inspect inputs and outputs first
+- Use `--no-js` for faster, safer fetches when JS rendering is not required
+- Avoid writing output files unless explicitly requested
+- Validate CLI args and selectors before changing defaults
+- Keep network access minimal; only fetch when required
+
+## NEVER Do These
+
+- Commit code changes unless explicitly requested
+- Add new dependencies without a clear need
+- Bypass the content cleaning pipeline without a strong reason
+- Remove anti-detection protections without replacing them
+- Hardcode environment-specific paths
+
+## ALWAYS Do These
+
+- Keep changes minimal and readable
+- Update CLI parser and `main()` together when adding options
+- Maintain the Input Detection → Fetching → Cleaning → Markdown pipeline
+- Explain non-obvious logic with concise English comments
+- Prefer simplest approach that preserves current behavior
+
+---
+
+## Quick Reference
+
+### Setup / Install
+```bash
+uv sync
+uv run playwright install chromium
+```
+
+### Run Commands
+```bash
+# URL mode
+uv run playwrightmd https://example.com
+
+# File mode
+uv run playwrightmd path/to/file.html
+
+# Stdin mode
+echo '<html><body><p>Test</p></body></html>' | uv run playwrightmd
+```
+
+### Common Flags
+```bash
+# Target a specific element
+uv run playwrightmd https://example.com --selector "article"
+
+# Raw HTML output
+uv run playwrightmd https://example.com --raw
+
+# Fast mode (no JS rendering)
+uv run playwrightmd https://example.com --no-js
+```
+
+---
+
+## Architecture Quick Map
 
 ```
 playwrightmd/
@@ -28,160 +83,105 @@ playwrightmd/
 └── .gitignore
 ```
 
-## Architecture
+**Decision Tree**:
 
-### Single-Module Design
+- Input detection → `detect_input_type()`
+- HTML fetching → `get_html_content()` → `fetch_with_playwright()` or `render_local_html()` or HTTP fetch
+- Content cleaning → `clean_html()`
+- Markdown conversion → `html_to_markdown()`
+- Output → `write_output()`
 
-The entire implementation is in `/Users/tizee/projects/project-AI/tools/webfetch.tizee/src/playwrightmd/__init__.py` (~400 lines). This is intentional for a focused CLI tool.
+### Language Stack
+- **Python**: Single-module CLI tool
 
-### Data Flow
+---
 
-```
-Input Detection → HTML Fetching → Content Cleaning → Markdown Conversion → Output
-```
+## Code Style Guidelines
 
-### Core Components
+### Python
+- Prefer small, single-purpose functions
+- Keep I/O at the edges (`main()`, `get_html_content()`, `write_output()`)
+- Avoid new global state
+- Keep exceptions explicit and actionable
 
-| Function | Purpose |
-|----------|---------|
-| `main()` | CLI entry point, orchestrates pipeline |
-| `detect_input_type()` | Determines if input is URL, file, or stdin |
-| `get_html_content()` | Routes to appropriate fetcher based on input type |
-| `fetch_with_playwright()` | Fetches URL via headless Chromium with anti-detection |
-| `render_local_html()` | Renders local HTML with Playwright for JS execution |
-| `clean_html()` | Removes non-content elements (nav, scripts, etc.) |
-| `html_to_markdown()` | Converts cleaned HTML to Markdown via markdownify |
-| `write_output()` | Writes to file or stdout |
-| `create_parser()` | Defines CLI arguments |
+### Comments
+- English only
+- Explain "why" not "what"
+- Add only when logic is non-obvious
 
-### Input Types
+---
 
-```python
-class InputType(Enum):
-    URL = "url"      # https://... or domain.com
-    FILE = "file"    # Local .html file
-    STDIN = "stdin"  # Piped input or '-'
-```
+## Key Functions
 
-### Key Dependencies
+- `main()`: CLI entry point, orchestrates pipeline
+- `create_parser()`: CLI argument definitions
+- `detect_input_type()`: URL/file/stdin detection
+- `get_html_content()`: Routes to fetchers
+- `fetch_with_playwright()`: JS-rendered fetcher
+- `render_local_html()`: Local HTML rendering
+- `clean_html()`: Content extraction heuristics
+- `html_to_markdown()`: Markdown conversion
+- `write_output()`: File/stdout output
 
-- **playwright**: Browser automation for JS rendering
-- **beautifulsoup4 + lxml**: HTML parsing and content extraction
-- **markdownify**: HTML to Markdown conversion
+---
 
-## CLI Options
+## Testing Strategy
 
-```
-playwrightmd [input] [options]
-
-Arguments:
-  input                   URL, file path, or '-' for stdin
-
-Output:
-  -o, --output FILE       Output file (default: stdout)
-  --raw                   Output raw HTML instead of Markdown
-
-Content Selection:
-  -s, --selector CSS      CSS selector for main content
-  --wait-for SELECTOR     Wait for element before extracting
-
-Browser Control:
-  --timeout MS            Page load timeout (default: 30000)
-  --headless/--no-headless  Browser visibility (default: headless)
-  --wait-until MODE       Navigation condition: load, domcontentloaded,
-                          networkidle (default), commit
-
-Network:
-  --user-agent UA         Custom User-Agent
-  --proxy-url URL         Proxy server
-  --no-js                 Skip Playwright, use HTTP fetch
-```
-
-## Content Extraction Heuristics
-
-### Elements Removed
-- Scripts, styles, noscript, iframe, svg
-- nav, aside, header, footer
-- Elements with sidebar/navigation classes or roles
-- HTML comments
-
-### Content Priority
-1. `<main>` tag
-2. `<article>` tag
-3. `[role="main"]` element
-4. Div with content-related classes (.content, .article, .post, .entry, .main)
-5. `<body>` fallback
-
-## Anti-Detection Measures
-
-The tool includes several measures to avoid bot detection:
-- Realistic User-Agent string (Chrome on macOS)
-- Standard viewport (1920x1080)
-- Removes `navigator.webdriver` flag
-- Disables automation detection features
-- Uses networkidle wait strategy by default
-
-## Development Commands
+Manual validation only:
 
 ```bash
-# Setup
-uv sync
-uv run playwright install chromium
-
-# Run directly
 uv run playwrightmd https://example.com
-
-# Install globally
-uv tool install .
-playwrightmd https://example.com
+echo '<html><body><p>Test</p></body></html>' > /tmp/test.html
+uv run playwrightmd /tmp/test.html
+echo '<html><body><p>Test</p></body></html>' | uv run playwrightmd
+uv run playwrightmd https://example.com --selector "article"
+uv run playwrightmd https://example.com --raw
+uv run playwrightmd https://example.com --no-js
 ```
 
-## Entry Points
+---
 
-- **CLI**: `playwrightmd` command (defined in pyproject.toml `[project.scripts]`)
-- **Code**: `main()` function in `src/playwrightmd/__init__.py`
+## Common Development Tasks
 
-## Extending the Tool
+### Adding a CLI Option
+1. Update `create_parser()`
+2. Thread the option through `main()`
+3. Add logic in the relevant function
+4. Manual test with a real URL and a local file
 
-When modifying this codebase:
+### Changing Content Extraction
+1. Update `clean_html()` heuristics
+2. Validate `<main>`, `<article>`, and role-based fallbacks
+3. Verify output on a JS-heavy and static page
 
-1. **Adding new CLI options**: Update `create_parser()` and thread through `main()`
-2. **Changing content extraction**: Modify `clean_html()` heuristics
-3. **Adding input types**: Extend `InputType` enum and `get_html_content()`
-4. **Modifying Markdown output**: Adjust `html_to_markdown()` markdownify options
-5. **Browser behavior**: Update `fetch_with_playwright()` launch/context options
+### Modifying Browser Behavior
+1. Update `fetch_with_playwright()` launch/context options
+2. Verify headless/headed behavior
+3. Confirm anti-detection protections still work
 
-## Testing Approach
-
-No test suite currently. To test manually:
-
-```bash
-# URL mode
-playwrightmd https://example.com
-
-# File mode
-echo '<html><body><p>Test</p></body></html>' > test.html
-playwrightmd test.html
-
-# Stdin mode
-echo '<html><body><p>Test</p></body></html>' | playwrightmd
-
-# With selector
-playwrightmd https://example.com --selector "article"
-
-# Raw HTML output
-playwrightmd https://example.com --raw
-
-# Fast mode (no JS)
-playwrightmd https://example.com --no-js
-```
+---
 
 ## Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| Browser not found | Run `uv run playwright install chromium` |
-| Timeout errors | Increase `--timeout` or use `--wait-until domcontentloaded` |
-| Missing content | Try `--wait-until networkidle` or add `--wait-for` selector |
-| Bot detection | Use `--proxy-url` or custom `--user-agent` |
-| Wrong content extracted | Use `-s/--selector` to target specific element |
+- Browser not found → `uv run playwright install chromium`
+- Timeout errors → Increase `--timeout` or use `--wait-until domcontentloaded`
+- Missing content → Use `--wait-until networkidle` or `--wait-for` selector
+- Bot detection → Try `--proxy-url` or custom `--user-agent`
+- Wrong content extracted → Use `--selector` to target main element
+
+---
+
+## Communication Style
+
+- Be concise and technical
+- Explain safety implications upfront
+- Provide file:line references for code locations
+- Suggest validation steps when changes affect output
+
+---
+
+## Resources
+
+- Code: `src/playwrightmd/__init__.py`
+- Docs: `README.md`
+- Config: `pyproject.toml`, `uv.lock`
