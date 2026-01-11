@@ -202,6 +202,19 @@ def html_to_markdown(html: str, strip_tags: list[str] | None = None, selector: s
     return "\n".join(cleaned_lines).strip() + "\n"
 
 
+def is_markdown_file(path: str) -> bool:
+    """Check if file path has a markdown extension."""
+    markdown_extensions = {'.md', '.markdown', '.mdown', '.mkdn', '.mkd', '.mdwn', '.mdtxt', '.mdtext', '.rmd'}
+    return any(path.lower().endswith(ext) for ext in markdown_extensions)
+
+
+def is_markdown_content_type(content_type: str | None) -> bool:
+    """Check if Content-Type header indicates markdown."""
+    if not content_type:
+        return False
+    return any(ctype in content_type.lower() for ctype in ['markdown', 'text/markdown', 'text/x-markdown'])
+
+
 def get_html_content(
     input_arg: str | None,
     input_type: InputType,
@@ -212,19 +225,31 @@ def get_html_content(
     proxy_url: str | None = None,
     headless: bool = True,
     wait_until: str = "networkidle",
-) -> str:
-    """Get HTML content based on input type."""
+) -> tuple[str, bool]:
+    """Get HTML content based on input type. Returns (content, is_markdown)."""
     if input_type == InputType.URL:
         url = input_arg
         # Add https:// if no protocol specified
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
 
+        # Check if URL looks like a markdown file based on extension
+        if is_markdown_file(url):
+            # Use simple HTTP fetch since it's a raw file
+            import urllib.request
+            req = urllib.request.Request(url, headers={"User-Agent": user_agent or DEFAULT_USER_AGENT})
+            with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
+                content_type = response.getheader("Content-Type")
+                # Even if extension suggests markdown, verify Content-Type
+                if is_markdown_content_type(content_type) or is_markdown_file(url):
+                    return (response.read().decode("utf-8"), True)
+            return (response.read().decode("utf-8"), False)
+
         if no_js:
             import urllib.request
             req = urllib.request.Request(url, headers={"User-Agent": user_agent or DEFAULT_USER_AGENT})
             with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
-                return response.read().decode("utf-8")
+                return (response.read().decode("utf-8"), False)
         return fetch_with_playwright(
             url,
             timeout=timeout,
@@ -233,19 +258,22 @@ def get_html_content(
             proxy_url=proxy_url,
             headless=headless,
             wait_until=wait_until,
-        )
+        ), False
 
     elif input_type == InputType.FILE:
+        # Check if file is markdown
+        if is_markdown_file(input_arg):
+            return (Path(input_arg).read_text(encoding="utf-8"), True)
         html = Path(input_arg).read_text(encoding="utf-8")
         if no_js:
-            return html
-        return render_local_html(html, timeout=timeout, headless=headless, wait_until=wait_until)
+            return (html, False)
+        return (render_local_html(html, timeout=timeout, headless=headless, wait_until=wait_until), False)
 
     elif input_type == InputType.STDIN:
         html = sys.stdin.read()
         if no_js:
-            return html
-        return render_local_html(html, timeout=timeout, headless=headless, wait_until=wait_until)
+            return (html, False)
+        return (render_local_html(html, timeout=timeout, headless=headless, wait_until=wait_until), False)
 
     raise ValueError(f"Unknown input type: {input_type}")
 
@@ -359,7 +387,7 @@ def main() -> int:
     try:
         input_type = detect_input_type(args.input)
 
-        html = get_html_content(
+        content, is_markdown = get_html_content(
             args.input,
             input_type,
             timeout=args.timeout,
@@ -372,9 +400,12 @@ def main() -> int:
         )
 
         if args.raw:
-            output = html
+            output = content
+        elif is_markdown:
+            # Skip conversion, output raw markdown
+            output = content
         else:
-            output = html_to_markdown(html, selector=args.selector)
+            output = html_to_markdown(content, selector=args.selector)
 
         write_output(output, args.output)
 

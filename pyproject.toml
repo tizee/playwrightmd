@@ -5,17 +5,17 @@ description = "Convert HTML to Markdown using Playwright for JS-rendered content
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
-
-[project.urls]
-Homepage = "https://github.com/tizee/playwrightmd"
-Repository = "https://github.com/tizee/playwrightmd"
-Issues = "https://github.com/tizee/playwrightmd/issues"
 dependencies = [
     "beautifulsoup4>=4.14.3",
     "lxml>=6.0.2",
     "markdownify>=1.2.2",
     "playwright>=1.57.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/tizee/playwrightmd"
+Repository = "https://github.com/tizee/playwrightmd"
+Issues = "https://github.com/tizee/playwrightmd/issues"
 
 [project.scripts]
 playwrightmd = "playwrightmd:main"
@@ -30,4 +30,6 @@ packages = ["src/playwrightmd"]
 [dependency-groups]
 dev = [
     "hatchling>=1.28.0",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
 ]

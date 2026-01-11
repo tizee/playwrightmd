@@ -75,8 +75,12 @@ playwrightmd/
 ├── src/
 │   └── playwrightmd/
 │       └── __init__.py      # All core code (single module)
+├── tests/                   # Automated tests
+│   ├── test_markdown_detection.py
+│   └── test_main_function.py
 ├── pyproject.toml           # Project config and dependencies
 ├── uv.lock                  # Locked dependencies
+├── pytest.ini               # pytest configuration
 ├── README.md                # User documentation
 ├── LICENSE                  # MIT license
 ├── .python-version          # Python 3.13
@@ -116,7 +120,9 @@ playwrightmd/
 - `main()`: CLI entry point, orchestrates pipeline
 - `create_parser()`: CLI argument definitions
 - `detect_input_type()`: URL/file/stdin detection
-- `get_html_content()`: Routes to fetchers
+- `get_html_content()`: Routes to fetchers (returns tuple: content, is_markdown)
+- `is_markdown_file()`: Detects markdown files by extension
+- `is_markdown_content_type()`: Detects markdown Content-Type headers
 - `fetch_with_playwright()`: JS-rendered fetcher
 - `render_local_html()`: Local HTML rendering
 - `clean_html()`: Content extraction heuristics
@@ -127,15 +133,53 @@ playwrightmd/
 
 ## Testing Strategy
 
-Manual validation only:
+### Automated Tests
+The project uses pytest for automated testing. To run tests:
 
 ```bash
+# Install dev dependencies
+uv sync
+
+# Run all tests
+uv run pytest tests/ -v
+
+# Run with coverage report
+uv run pytest tests/ --cov=playwrightmd
+```
+
+Test coverage includes:
+- Input detection logic
+- Markdown file/URL detection
+- HTML to Markdown conversion
+- CLI argument handling
+
+### Manual Validation
+For manual testing of core functionality:
+
+```bash
+# Standard HTML to Markdown
 uv run playwrightmd https://example.com
+
+# Markdown file (should pass through unchanged)
+uv run playwrightmd https://raw.githubusercontent.com/openai/openai-python/refs/heads/main/api.md
+
+# Local markdown file
+uv run playwrightmd test.md
+
+# HTML file mode
 echo '<html><body><p>Test</p></body></html>' > /tmp/test.html
 uv run playwrightmd /tmp/test.html
+
+# Stdin mode
 echo '<html><body><p>Test</p></body></html>' | uv run playwrightmd
+
+# Target a specific element
 uv run playwrightmd https://example.com --selector "article"
+
+# Raw HTML output
 uv run playwrightmd https://example.com --raw
+
+# Fast mode (no JS rendering)
 uv run playwrightmd https://example.com --no-js
 ```
 

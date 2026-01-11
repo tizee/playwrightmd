@@ -9,6 +9,7 @@ Convert HTML to Markdown using Playwright. Handles JavaScript-rendered content, 
 - **Smart content extraction**: Removes sidebars, navigation, and boilerplate
 - **Multiple input modes**: URL, local file, or stdin
 - **CSS selector support**: Target specific content areas
+- **Markdown detection**: Automatically skips conversion for raw markdown files/URLs
 
 ## Installation
 
@@ -71,15 +72,24 @@ uv run playwrightmd https://example.com
 ### URL mode
 
 ```bash
+# Standard HTML to Markdown conversion
 playwrightmd https://example.com -o output.md
 playwrightmd https://docs.python.org/3/tutorial/ -o python_tutorial.md
+
+# Raw markdown URL (automatically skips conversion)
+playwrightmd https://raw.githubusercontent.com/openai/openai-python/refs/heads/main/api.md -o openai_api.md
 ```
 
 ### File mode
 
 ```bash
+# HTML to Markdown conversion
 playwrightmd page.html -o output.md
 playwrightmd ./downloaded_page.html
+
+# Local markdown file (passes through unchanged)
+playwrightmd document.md -o unchanged.md
+playwrightmd ./notes.markdown
 ```
 
 ### Stdin mode
@@ -216,9 +226,23 @@ curl -s https://react-app.com -o static.html
 ## How It Works
 
 1. **Input detection**: Determines if input is URL, file, or stdin
-2. **Playwright rendering**: Launches headless Chromium with anti-detection measures
-3. **Content extraction**: Removes scripts, styles, navigation, sidebars
-4. **Markdown conversion**: Uses markdownify with clean formatting
+2. **Markdown detection**: Automatically identifies if input is already a markdown file/URL
+3. **Playwright rendering**: Launches headless Chromium with anti-detection measures (for HTML only)
+4. **Content extraction**: Removes scripts, styles, navigation, sidebars (for HTML only)
+5. **Markdown conversion**: Uses markdownify with clean formatting (for HTML only)
+
+### Markdown Detection
+
+playwrightmd automatically detects when input is already in markdown format and skips the conversion process entirely, preserving the original content. Detection works by:
+
+- **File extensions**: Recognizes common markdown extensions: `.md`, `.markdown`, `.mdown`, `.mkdn`, `.mkd`, `.mdwn`, `.mdtxt`, `.mdtext`, `.rmd`
+- **URL pattern matching**: Detects raw markdown files hosted on services like GitHub Raw
+- **Content-Type headers**: Verifies markdown content type from HTTP responses
+
+When markdown is detected:
+- No HTML parsing or cleaning is performed
+- No Playwright browser is launched (faster execution)
+- The original markdown content is passed through unchanged
 
 ### Navigation lifecycle (`--wait-until`)
 
