@@ -215,6 +215,29 @@ def is_markdown_content_type(content_type: str | None) -> bool:
     return any(ctype in content_type.lower() for ctype in ['markdown', 'text/markdown', 'text/x-markdown'])
 
 
+def is_text_file(path: str) -> bool:
+    """Check if file path has a text file extension (files that should be passed through without conversion)."""
+    text_extensions = {
+        '.txt', '.text',  # Plain text
+        '.json',          # JSON
+        '.xml',           # XML
+        '.yaml', '.yml',  # YAML
+        '.csv',           # CSV
+        '.toml',          # TOML
+        '.ini', '.cfg', '.conf',  # Config files
+        '.log',           # Log files
+        '.rdf', '.n3', '.ttl', '.nt',  # RDF formats
+    }
+    return any(path.lower().endswith(ext) for ext in text_extensions)
+
+
+def is_text_content_type(content_type: str | None) -> bool:
+    """Check if Content-Type header indicates plain text."""
+    if not content_type:
+        return False
+    return 'text/plain' in content_type.lower()
+
+
 def get_html_content(
     input_arg: str | None,
     input_type: InputType,
@@ -233,15 +256,17 @@ def get_html_content(
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
 
-        # Check if URL looks like a markdown file based on extension
-        if is_markdown_file(url):
+        # Check if URL looks like a markdown or text file based on extension
+        if is_markdown_file(url) or is_text_file(url):
             # Use simple HTTP fetch since it's a raw file
             import urllib.request
             req = urllib.request.Request(url, headers={"User-Agent": user_agent or DEFAULT_USER_AGENT})
             with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
                 content_type = response.getheader("Content-Type")
-                # Even if extension suggests markdown, verify Content-Type
+                # Skip conversion for markdown or text files
                 if is_markdown_content_type(content_type) or is_markdown_file(url):
+                    return (response.read().decode("utf-8"), True)
+                if is_text_content_type(content_type) or is_text_file(url):
                     return (response.read().decode("utf-8"), True)
             return (response.read().decode("utf-8"), False)
 
@@ -261,8 +286,8 @@ def get_html_content(
         ), False
 
     elif input_type == InputType.FILE:
-        # Check if file is markdown
-        if is_markdown_file(input_arg):
+        # Check if file is markdown or text
+        if is_markdown_file(input_arg) or is_text_file(input_arg):
             return (Path(input_arg).read_text(encoding="utf-8"), True)
         html = Path(input_arg).read_text(encoding="utf-8")
         if no_js:

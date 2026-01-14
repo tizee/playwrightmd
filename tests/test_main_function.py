@@ -88,3 +88,33 @@ class TestMainFunction:
         assert "<h1>Test</h1>" in output
         assert "<body>" in output
         assert "<html>" in output
+
+    def test_main_with_text_file(self, tmp_path, capsys):
+        # Create test text file
+        txt_file = tmp_path / "test.txt"
+        txt_content = "This is plain text content.\nMultiple lines.\nNo conversion needed."
+        txt_file.write_text(txt_content, encoding="utf-8")
+
+        # Run main with text file input
+        with patch.object(sys, 'argv', ['playwrightmd', str(txt_file)]):
+            result = main()
+            assert result == 0
+
+        # Capture output
+        captured = capsys.readouterr()
+        assert captured.out.strip() == txt_content.strip()
+
+    def test_main_with_json_file(self, tmp_path, capsys):
+        # Create test JSON file
+        json_file = tmp_path / "data.json"
+        json_content = '{"key": "value", "number": 42, "nested": {"item": true}}'
+        json_file.write_text(json_content, encoding="utf-8")
+
+        # Run main with JSON file input
+        with patch.object(sys, 'argv', ['playwrightmd', str(json_file)]):
+            result = main()
+            assert result == 0
+
+        # Capture output - JSON should pass through unchanged
+        captured = capsys.readouterr()
+        assert captured.out.strip() == json_content.strip()
