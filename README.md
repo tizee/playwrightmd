@@ -10,6 +10,7 @@ Convert HTML to Markdown using Playwright. Handles JavaScript-rendered content, 
 - **Multiple input modes**: URL, local file, or stdin
 - **CSS selector support**: Target specific content areas
 - **Markdown detection**: Automatically skips conversion for raw markdown files/URLs
+- **Link truncation**: Truncate long URLs in markdown links
 
 ## Installation
 
@@ -73,28 +74,31 @@ uv run playwrightmd https://example.com
 
 ```bash
 # Standard HTML to Markdown conversion
+playwrightmd https://example.com output.md
 playwrightmd https://example.com -o output.md
-playwrightmd https://docs.python.org/3/tutorial/ -o python_tutorial.md
+playwrightmd https://docs.python.org/3/tutorial/ python_tutorial.md
 
 # Raw markdown URL (automatically skips conversion)
-playwrightmd https://raw.githubusercontent.com/openai/openai-python/refs/heads/main/api.md -o openai_api.md
+playwrightmd https://raw.githubusercontent.com/openai/openai-python/refs/heads/main/api.md openai_api.md
 ```
 
 ### File mode
 
 ```bash
 # HTML to Markdown conversion
+playwrightmd page.html output.md
 playwrightmd page.html -o output.md
 playwrightmd ./downloaded_page.html
 
 # Local markdown file (passes through unchanged)
-playwrightmd document.md -o unchanged.md
+playwrightmd document.md unchanged.md
 playwrightmd ./notes.markdown
 ```
 
 ### Stdin mode
 
 ```bash
+cat page.html | playwrightmd output.md
 cat page.html | playwrightmd -o output.md
 curl -s https://example.com | playwrightmd > output.md
 ```
@@ -102,14 +106,17 @@ curl -s https://example.com | playwrightmd > output.md
 ## Options
 
 ```
-playwrightmd [input] [options]
+playwrightmd [input] [output] [options]
 
 Arguments:
   input                   URL or file path (omit or use '-' for stdin)
+  output                  Output file (optional, default: stdout)
 
 Output:
-  -o, --output FILE       Output file (default: stdout for piping)
+  -o, --output FILE       Output file (alternative to positional argument)
   --raw                   Output raw HTML without Markdown conversion
+  --truncate-link [N]     Truncate URLs longer than N display width
+                          (default: 42 when flag is used)
 
 Content Selection:
   -s, --selector CSS      CSS selector for main content
@@ -157,6 +164,21 @@ playwrightmd https://spa-app.com --wait-for ".content-loaded"
 ```bash
 playwrightmd https://simple-page.com --no-js
 ```
+
+### Truncate long links
+
+```bash
+# Truncate URLs longer than 42 display width (default)
+playwrightmd https://example.com --truncate-link
+
+# Custom truncate length
+playwrightmd https://example.com --truncate-link 30
+
+# Output to file with truncated links
+playwrightmd https://example.com output.md --truncate-link
+```
+
+**Note:** Uses `wcwidth` for proper Unicode/CJK character width calculation. A CJK character counts as 2 display width units.
 
 ### Longer timeout for slow sites
 

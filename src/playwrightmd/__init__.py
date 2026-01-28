@@ -17,6 +17,7 @@ from typing import TextIO
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from wcwidth import wcswidth
 
 
 class InputType(Enum):
@@ -202,6 +203,36 @@ def html_to_markdown(html: str, strip_tags: list[str] | None = None, selector: s
     return "\n".join(cleaned_lines).strip() + "\n"
 
 
+def truncate_markdown_links(markdown: str, max_length: int = 42) -> str:
+    """Truncate URLs in markdown links that exceed max_length display width."""
+    import re
+
+    # Pattern matches markdown links: [text](url) or [text](url "title")
+    # Captures: [1] = link text, [2] = url, [3] = optional title
+    link_pattern = re.compile(r'\[([^\]]+)\]\(([^\s\)]+)(\s+"[^"]*")?\)')
+
+    def truncate_url(match: re.Match) -> str:
+        text = match.group(1)
+        url = match.group(2)
+        title = match.group(3) or ""
+
+        # Use wcswidth to calculate display width (handles CJK/Unicode correctly)
+        if wcswidth(url) > max_length:
+            # Truncate to fit within max_length display width
+            truncated = ""
+            current_width = 0
+            for char in url:
+                char_width = wcswidth(char)
+                if current_width + char_width > max_length - 1:  # Reserve 1 for ellipsis
+                    break
+                truncated += char
+                current_width += char_width
+            return f"[{text}]({truncated}…{title})"
+        return match.group(0)
+
+    return link_pattern.sub(truncate_url, markdown)
+
+
 def is_markdown_file(path: str) -> bool:
     """Check if file path has a markdown extension."""
     markdown_extensions = {'.md', '.markdown', '.mdown', '.mkdn', '.mkd', '.mdwn', '.mdtxt', '.mdtext', '.rmd'}
@@ -318,9 +349,10 @@ def create_parser() -> argparse.ArgumentParser:
         description="Convert HTML to Markdown using Playwright for JS-rendered content",
         epilog="""
 Examples:
+  playwrightmd https://example.com output.md
   playwrightmd https://example.com -o output.md
-  playwrightmd page.html -o output.md
-  cat page.html | playwrightmd -o output.md
+  playwrightmd page.html output.md
+  cat page.html | playwrightmd output.md
   curl -s https://example.com | playwrightmd
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -333,8 +365,15 @@ Examples:
     )
 
     parser.add_argument(
+        "output",
+        nargs="?",
+        help="Output file path (optional, default: stdout)",
+    )
+
+    parser.add_argument(
         "-o", "--output",
-        help="Output file (default: stdout)",
+        dest="output_flag",
+        help="Output file (alternative to positional argument)",
     )
 
     parser.add_argument(
@@ -401,6 +440,15 @@ Examples:
         help="Output raw HTML without converting to Markdown",
     )
 
+    parser.add_argument(
+        "--truncate-link",
+        type=int,
+        const=42,
+        nargs="?",
+        metavar="N",
+        help="Truncate URLs in markdown links longer than N chars (default: 42 when flag is used)",
+    )
+
     return parser
 
 
@@ -408,6 +456,9 @@ def main() -> int:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()
+
+    # Determine output file: prefer positional arg, fallback to -o/--output flag
+    output_file = args.output if args.output else args.output_flag
 
     try:
         input_type = detect_input_type(args.input)
@@ -432,7 +483,11 @@ def main() -> int:
         else:
             output = html_to_markdown(content, selector=args.selector)
 
-        write_output(output, args.output)
+        # Apply link truncation if requested
+        if args.truncate_link is not None:
+            output = truncate_markdown_links(output, max_length=args.truncate_link)
+
+        write_output(output, output_file)
 
         return 0
 
