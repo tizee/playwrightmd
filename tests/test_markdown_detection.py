@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 from playwrightmd import (
     is_markdown_file,
     is_markdown_content_type,
@@ -183,3 +184,112 @@ class TestTextDetection:
 
         assert is_markdown is True  # Returns True for passthrough content
         assert content == json_content
+
+
+class TestCloudflareMarkdownForAgents:
+    """Tests for Cloudflare Markdown for Agents support.
+
+    When a website enables Cloudflare's Markdown for Agents feature,
+    AI agents can receive Markdown directly instead of HTML, reducing
+    token consumption by ~80%.
+    """
+
+    @patch('urllib.request.urlopen')
+    def test_url_fetch_sends_accept_header_with_markdown_and_html(self, mock_urlopen):
+        """Verify URL fetch includes Accept: text/markdown, text/html header for Cloudflare support."""
+        # Setup mock response
+        mock_response = MagicMock()
+        mock_response.getheader.return_value = "text/html; charset=utf-8"
+        mock_response.read.return_value = b"<html><body>Test</body></html>"
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Call get_html_content for a URL that doesn't look like a file
+        # Using a domain that doesn't have a file extension
+        content, is_markdown = get_html_content(
+            "https://example.com",
+            InputType.URL,
+            no_js=True,  # Use simple HTTP fetch
+        )
+
+        # Verify urlopen was called
+        mock_urlopen.assert_called_once()
+
+        # Get the Request object that was passed to urlopen
+        call_args = mock_urlopen.call_args
+        request_obj = call_args[0][0]
+
+        # Verify Accept header is set
+        accept_header = request_obj.get_header("Accept")
+        assert accept_header == "text/markdown, text/html"
+
+    @patch('urllib.request.urlopen')
+    def test_cloudflare_markdown_response_returns_is_markdown_true(self, mock_urlopen):
+        """When server returns text/markdown Content-Type, should return is_markdown=True."""
+        # Setup mock response simulating Cloudflare Markdown response
+        mock_response = MagicMock()
+        mock_response.getheader.side_effect = lambda h: {
+            "Content-Type": "text/markdown",
+            "X-Markdown-Tokens": "1500",
+        }.get(h)
+        mock_response.read.return_value = b"# Hello World\n\nThis is markdown content."
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Call get_html_content for a URL with .md extension (triggers file fetch)
+        content, is_markdown = get_html_content(
+            "https://example.com/README.md",
+            InputType.URL,
+            no_js=True,
+        )
+
+        # Should return is_markdown=True to skip HTML parsing
+        assert is_markdown is True
+        assert "# Hello World" in content
+
+    @patch('urllib.request.urlopen')
+    def test_cloudflare_html_response_returns_is_markdown_false(self, mock_urlopen):
+        """When server returns text/html Content-Type, should return is_markdown=False."""
+        # Setup mock response simulating regular HTML response
+        mock_response = MagicMock()
+        mock_response.getheader.side_effect = lambda h: {
+            "Content-Type": "text/html; charset=utf-8",
+        }.get(h)
+        mock_response.read.return_value = b"<html><body><h1>Hello</h1></body></html>"
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Call get_html_content for a URL with .md extension
+        content, is_markdown = get_html_content(
+            "https://example.com/README.md",
+            InputType.URL,
+            no_js=True,
+        )
+
+        # Should return is_markdown=False to trigger HTML parsing
+        assert is_markdown is False
+        assert "<h1>Hello</h1>" in content
+
+    @patch('urllib.request.urlopen')
+    def test_x_markdown_tokens_header_logged_when_present(self, mock_urlopen, capsys):
+        """When server includes X-Markdown-Tokens header, it should be logged."""
+        # Setup mock response with X-Markdown-Tokens header
+        mock_response = MagicMock()
+        mock_response.getheader.side_effect = lambda h: {
+            "Content-Type": "text/markdown",
+            "X-Markdown-Tokens": "1500",
+        }.get(h)
+        mock_response.read.return_value = b"# Hello World"
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Call get_html_content
+        content, is_markdown = get_html_content(
+            "https://example.com/README.md",
+            InputType.URL,
+            no_js=True,
+        )
+
+        # Verify logging occurred to stderr
+        captured = capsys.readouterr()
+        assert "Markdown tokens" in captured.err or "1500" in captured.err

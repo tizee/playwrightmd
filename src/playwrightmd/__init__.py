@@ -76,6 +76,11 @@ def fetch_with_playwright(
 
         page = context.new_page()
 
+        # Set extra HTTP headers for Cloudflare Markdown for Agents support
+        page.set_extra_http_headers({
+            "Accept": "text/markdown, text/html",
+        })
+
         # Remove webdriver detection
         page.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -291,21 +296,46 @@ def get_html_content(
         if is_markdown_file(url) or is_text_file(url):
             # Use simple HTTP fetch since it's a raw file
             import urllib.request
-            req = urllib.request.Request(url, headers={"User-Agent": user_agent or DEFAULT_USER_AGENT})
+            headers = {
+                "User-Agent": user_agent or DEFAULT_USER_AGENT,
+                "Accept": "text/markdown, text/html",
+            }
+            req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
                 content_type = response.getheader("Content-Type")
-                # Skip conversion for markdown or text files
-                if is_markdown_content_type(content_type) or is_markdown_file(url):
-                    return (response.read().decode("utf-8"), True)
-                if is_text_content_type(content_type) or is_text_file(url):
-                    return (response.read().decode("utf-8"), True)
-            return (response.read().decode("utf-8"), False)
+                content = response.read().decode("utf-8")
+                # Handle Cloudflare Markdown for Agents - prioritize server's Content-Type
+                if is_markdown_content_type(content_type):
+                    # Server returns Markdown - use directly
+                    markdown_tokens = response.getheader("X-Markdown-Tokens")
+                    if markdown_tokens:
+                        print(f"[Cloudflare] Markdown tokens: {markdown_tokens}", file=sys.stderr)
+                    return (content, True)
+                if is_text_content_type(content_type):
+                    # Server returns plain text - pass through
+                    return (content, True)
+                # For text/html or unknown Content-Type, don't assume based on URL extension
+                # Let the HTML parser handle it (or user can use --raw to see raw content)
+                return (content, False)
 
         if no_js:
             import urllib.request
-            req = urllib.request.Request(url, headers={"User-Agent": user_agent or DEFAULT_USER_AGENT})
+            headers = {
+                "User-Agent": user_agent or DEFAULT_USER_AGENT,
+                "Accept": "text/markdown, text/html",
+            }
+            req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
-                return (response.read().decode("utf-8"), False)
+                content_type = response.getheader("Content-Type")
+                content = response.read().decode("utf-8")
+                # Handle Cloudflare Markdown for Agents
+                if is_markdown_content_type(content_type):
+                    # Log x-markdown-tokens if present
+                    markdown_tokens = response.getheader("X-Markdown-Tokens")
+                    if markdown_tokens:
+                        print(f"[Cloudflare] Markdown tokens: {markdown_tokens}", file=sys.stderr)
+                    return (content, True)
+                return (content, False)
         return fetch_with_playwright(
             url,
             timeout=timeout,

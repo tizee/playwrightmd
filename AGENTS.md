@@ -86,6 +86,19 @@ playwrightmd/
 
 ---
 
+## Cloudflare Markdown for Agents
+
+When fetching URLs, the tool sends `Accept: text/markdown, text/html` header to request Markdown format from Cloudflare-enabled sites.
+
+**Behavior:**
+- If server returns `Content-Type: text/markdown` → content returned as markdown (skips HTML parsing)
+- If server returns `Content-Type: text/html` → content parsed as HTML (default)
+- If `X-Markdown-Tokens` header is present → logged to stderr for token budget estimation
+
+**Benefits:** ~80% token reduction when Cloudflare Markdown is available.
+
+---
+
 ## Resources
 
 - Code: `src/playwrightmd/__init__.py`
