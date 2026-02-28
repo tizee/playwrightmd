@@ -4,6 +4,8 @@ Convert HTML to Markdown using Playwright. Handles JavaScript-rendered content, 
 
 ## Features
 
+- **[Cloudflare Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/)**: Automatically fetches pre-converted markdown from Cloudflare-enabled sites (~80% token reduction, no browser needed)
+- **HTTP prefetch with Playwright fallback**: Lightweight HTTP fetch first, Playwright only when JS rendering is needed
 - **JavaScript rendering**: Uses Playwright to render SPAs and dynamic content
 - **Bot detection bypass**: Handles Cloudflare and similar protections
 - **Smart content extraction**: Removes sidebars, navigation, and boilerplate
@@ -127,7 +129,7 @@ Browser Control:
   --headless              Run in headless mode (default: True)
   --no-headless           Run with visible browser window
   --wait-until MODE       Navigation success condition:
-                          load, domcontentloaded, networkidle (default), commit
+                          load, domcontentloaded (default), networkidle, commit
 
 Network:
   --user-agent UA         Custom User-Agent string
@@ -249,9 +251,10 @@ curl -s https://react-app.com -o static.html
 
 1. **Input detection**: Determines if input is URL, file, or stdin
 2. **Markdown detection**: Automatically identifies if input is already a markdown file/URL
-3. **Playwright rendering**: Launches headless Chromium with anti-detection measures (for HTML only)
-4. **Content extraction**: Removes scripts, styles, navigation, sidebars (for HTML only)
-5. **Markdown conversion**: Uses markdownify with clean formatting (for HTML only)
+3. **HTTP prefetch** (URLs only): Lightweight fetch with `Accept: text/markdown, text/html` header. If the server returns markdown (e.g., Cloudflare Markdown for Agents), use it directly — no browser launched
+4. **Playwright fallback** (URLs only): If prefetch returns HTML and JS rendering is needed, launches headless Chromium with anti-detection measures
+5. **Content extraction**: Removes scripts, styles, navigation, sidebars (for HTML only)
+6. **Markdown conversion**: Uses markdownify with clean formatting (for HTML only)
 
 ### Markdown Detection
 
@@ -266,21 +269,44 @@ When markdown is detected:
 - No Playwright browser is launched (faster execution)
 - The original markdown content is passed through unchanged
 
+### Cloudflare Markdown for Agents
+
+For sites with [Cloudflare Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/) enabled, playwrightmd automatically receives pre-converted markdown via HTTP content negotiation — no browser launch needed.
+
+```bash
+# Cloudflare blog returns markdown directly (~27KB vs ~465KB HTML)
+playwrightmd https://blog.cloudflare.com/markdown-for-agents/
+
+# Cloudflare developer docs
+playwrightmd https://developers.cloudflare.com/workers/
+```
+
+**How it works:**
+- Every URL fetch starts with a lightweight HTTP prefetch that sends `Accept: text/markdown, text/html`
+- If the server returns `Content-Type: text/markdown`, the content is used directly (Playwright is never launched)
+- The `X-Markdown-Tokens` header, if present, is logged to stderr for token budget estimation
+- If the server returns HTML, playwrightmd falls back to Playwright for JS rendering (unless `--no-js` is set)
+
+**Benefits:**
+- ~80% token reduction compared to HTML-to-markdown conversion
+- Near-instant response (no browser startup overhead)
+- Works transparently — no extra flags needed
+
 ### Navigation lifecycle (`--wait-until`)
 
 The `--wait-until` option controls when Playwright considers the page "loaded" and extracts content:
 
 ```
 commit ──→ domcontentloaded ──→ load ──→ networkidle
-(fastest)                                  (slowest, default)
+(fastest)    (default)                    (slowest)
 ```
 
 | Mode | Triggered when | Best for |
 |------|---------------|----------|
 | `commit` | Navigation response received | Quick checks, simple pages |
-| `domcontentloaded` | HTML parsed, DOM ready | Static HTML pages |
+| `domcontentloaded` | HTML parsed, DOM ready | Most websites (default) |
 | `load` | All resources (images, CSS, JS) loaded | Traditional websites |
-| `networkidle` | No network requests for 500ms | SPAs, JS-heavy sites (default) |
+| `networkidle` | No network requests for 500ms | SPAs, JS-heavy sites |
 
 **Examples:**
 
@@ -288,16 +314,16 @@ commit ──→ domcontentloaded ──→ load ──→ networkidle
 # Fast: just get the initial HTML
 playwrightmd https://example.com --wait-until commit
 
-# Medium: wait for DOM but not all resources
+# Default: wait for DOM ready (good balance of speed and completeness)
 playwrightmd https://example.com --wait-until domcontentloaded
 
-# Slow but thorough: wait for all network activity to settle (default)
+# Slow but thorough: wait for all network activity to settle
 playwrightmd https://example.com --wait-until networkidle
 ```
 
 **When to change from default:**
-- Use `commit` or `domcontentloaded` for static sites to speed up fetching
-- Stick with `networkidle` (default) for React/Vue/Angular apps that load content via JavaScript
+- Use `commit` for quick checks on simple static pages
+- Use `networkidle` for React/Vue/Angular apps that load content via JavaScript
 - If content is missing, try `networkidle` with a longer `--timeout`
 
 ### Anti-detection measures
@@ -305,7 +331,6 @@ playwrightmd https://example.com --wait-until networkidle
 - Realistic user agent and viewport
 - Removes `navigator.webdriver` flag
 - Disables automation detection features
-- Waits for network idle state
 
 ### Content extraction heuristics
 

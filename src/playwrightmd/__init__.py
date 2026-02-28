@@ -52,7 +52,7 @@ def fetch_with_playwright(
     user_agent: str | None = None,
     proxy_url: str | None = None,
     headless: bool = True,
-    wait_until: str = "networkidle",
+    wait_until: str = "domcontentloaded",
 ) -> str:
     """Fetch URL using Playwright and return rendered HTML."""
     with sync_playwright() as p:
@@ -89,13 +89,6 @@ def fetch_with_playwright(
         try:
             page.goto(url, timeout=timeout, wait_until=wait_until)
 
-            # Additional wait for networkidle if using faster initial load
-            if wait_until in ["commit", "domcontentloaded", "load"]:
-                try:
-                    page.wait_for_load_state("networkidle", timeout=timeout)
-                except PlaywrightTimeout:
-                    pass  # Continue with what we have
-
             if wait_for:
                 page.wait_for_selector(wait_for, timeout=timeout)
 
@@ -111,7 +104,7 @@ def render_local_html(
     html_content: str,
     timeout: int = 30000,
     headless: bool = True,
-    wait_until: str = "networkidle",
+    wait_until: str = "domcontentloaded",
 ) -> str:
     """Render local HTML with Playwright to execute any JavaScript."""
     with sync_playwright() as p:
@@ -283,7 +276,7 @@ def get_html_content(
     user_agent: str | None = None,
     proxy_url: str | None = None,
     headless: bool = True,
-    wait_until: str = "networkidle",
+    wait_until: str = "domcontentloaded",
 ) -> tuple[str, bool]:
     """Get HTML content based on input type. Returns (content, is_markdown)."""
     if input_type == InputType.URL:
@@ -318,24 +311,30 @@ def get_html_content(
                 # Let the HTML parser handle it (or user can use --raw to see raw content)
                 return (content, False)
 
-        if no_js:
-            import urllib.request
-            headers = {
-                "User-Agent": user_agent or DEFAULT_USER_AGENT,
-                "Accept": "text/markdown, text/html",
-            }
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
-                content_type = response.getheader("Content-Type")
-                content = response.read().decode("utf-8")
-                # Handle Cloudflare Markdown for Agents
-                if is_markdown_content_type(content_type):
-                    # Log x-markdown-tokens if present
-                    markdown_tokens = response.getheader("X-Markdown-Tokens")
-                    if markdown_tokens:
-                        print(f"[Cloudflare] Markdown tokens: {markdown_tokens}", file=sys.stderr)
-                    return (content, True)
+        # Lightweight HTTP prefetch: try simple fetch first, fall back to Playwright
+        # only when JS rendering is actually needed. This avoids launching a heavy
+        # browser for sites that support Cloudflare Markdown for Agents or serve
+        # complete static HTML.
+        import urllib.request
+        headers = {
+            "User-Agent": user_agent or DEFAULT_USER_AGENT,
+            "Accept": "text/markdown, text/html",
+        }
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
+            content_type = response.getheader("Content-Type")
+            content = response.read().decode("utf-8")
+            # Cloudflare Markdown for Agents: server converted HTML to markdown
+            if is_markdown_content_type(content_type):
+                markdown_tokens = response.getheader("X-Markdown-Tokens")
+                if markdown_tokens:
+                    print(f"[Cloudflare] Markdown tokens: {markdown_tokens}", file=sys.stderr)
+                return (content, True)
+            # For HTML responses, skip Playwright if --no-js or no wait_for selector
+            if no_js:
                 return (content, False)
+
+        # Fall back to Playwright for JS-rendered content
         return fetch_with_playwright(
             url,
             timeout=timeout,
@@ -454,8 +453,8 @@ Examples:
     parser.add_argument(
         "--wait-until",
         choices=WAIT_UNTIL_CHOICES,
-        default="networkidle",
-        help="When to consider navigation succeeded (default: networkidle)",
+        default="domcontentloaded",
+        help="When to consider navigation succeeded (default: domcontentloaded)",
     )
 
     parser.add_argument(

@@ -50,6 +50,11 @@ playwrightmd/
 **Pipeline:**
 `detect_input_type()` → `get_html_content()` → `clean_html()` → `html_to_markdown()` → `write_output()`
 
+**Fetching strategy (for URLs):**
+`get_html_content()` uses a two-tier approach:
+1. **HTTP prefetch** (urllib) — lightweight fetch with `Accept: text/markdown, text/html`. If Cloudflare returns markdown, use it directly (skips Playwright entirely).
+2. **Playwright fallback** — only launched when JS rendering is needed (SPA, dynamic content). Default `wait_until` is `domcontentloaded`.
+
 ---
 
 ## Key Functions
@@ -88,14 +93,16 @@ playwrightmd/
 
 ## Cloudflare Markdown for Agents
 
-When fetching URLs, the tool sends `Accept: text/markdown, text/html` header to request Markdown format from Cloudflare-enabled sites.
+The tool uses HTTP prefetch with `Accept: text/markdown, text/html` header before launching Playwright. For sites with Cloudflare Markdown for Agents enabled, this returns markdown directly — no browser needed.
 
 **Behavior:**
-- If server returns `Content-Type: text/markdown` → content returned as markdown (skips HTML parsing)
-- If server returns `Content-Type: text/html` → content parsed as HTML (default)
+- HTTP prefetch runs first for all URL requests
+- If server returns `Content-Type: text/markdown` → content returned as markdown (skips Playwright and HTML parsing)
+- If server returns `Content-Type: text/html` and `--no-js` → use HTML directly
+- If server returns `Content-Type: text/html` and JS rendering needed → fall back to Playwright
 - If `X-Markdown-Tokens` header is present → logged to stderr for token budget estimation
 
-**Benefits:** ~80% token reduction when Cloudflare Markdown is available.
+**Benefits:** ~80% token reduction and near-instant response when Cloudflare Markdown is available (no browser launch overhead).
 
 ---
 
