@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-03-03
+
+### Fixed
+- HTTP prefetch now falls back to Playwright on HTTP errors (403, 500, etc.) and connection failures instead of crashing
+- Added test coverage for prefetch fallback behavior
+
+### Changed
+- HTML file processing tests now use `--no-js` to avoid Playwright dependency in unit tests
+
 ## [0.4.0] - 2026-03-01
 
 ### Added
@@ -47,7 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release with HTML to Markdown conversion using Playwright
 
-[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.1
 [0.4.0]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.0
 [0.3.0]: https://github.com/tizee/playwrightmd/releases/tag/v0.3.0
 [0.2.0]: https://github.com/tizee/playwrightmd/releases/tag/v0.2.0
