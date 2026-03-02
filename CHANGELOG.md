@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-03-03
+
+### Changed
+- Migrated from argparse to Click for modern CLI experience
+- Added `--version` flag with colorful output (cyan/green)
+- Error messages now displayed in red
+- Version dynamically read from package metadata
+
 ## [0.4.1] - 2026-03-03
 
 ### Fixed
@@ -56,7 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release with HTML to Markdown conversion using Playwright
 
-[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.2
 [0.4.1]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.1
 [0.4.0]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.0
 [0.3.0]: https://github.com/tizee/playwrightmd/releases/tag/v0.3.0

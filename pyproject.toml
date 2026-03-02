@@ -1,12 +1,13 @@
 [project]
 name = "playwrightmd"
-version = "0.4.1"
+version = "0.4.2"
 description = "Convert HTML to Markdown using Playwright for JS-rendered content"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "beautifulsoup4>=4.14.3",
+    "click>=8.1.0",
     "lxml>=6.0.2",
     "markdownify>=1.2.2",
     "playwright>=1.57.0",

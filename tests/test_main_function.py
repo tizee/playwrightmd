@@ -5,6 +5,11 @@ from unittest.mock import patch, MagicMock
 from playwrightmd import main, detect_input_type, InputType, truncate_markdown_links
 
 
+def run_main(*args):
+    """Helper to run run_main() without Click calling sys.exit."""
+    return main(*args, standalone_mode=False)
+
+
 class TestMainFunction:
     def test_detect_input_type(self):
         # Test URL detection
@@ -38,7 +43,7 @@ class TestMainFunction:
 
         # Run main with positional output argument (--no-js avoids Playwright for unit tests)
         with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), str(output_file)]):
-            result = main()
+            result = run_main()
             assert result == 0
 
         # Verify output file was created and contains markdown
@@ -56,7 +61,7 @@ class TestMainFunction:
 
         # Run main with -o flag (backward compatibility)
         with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '-o', str(output_file)]):
-            result = main()
+            result = run_main()
             assert result == 0
 
         # Verify output file was created
@@ -74,7 +79,7 @@ class TestMainFunction:
 
         # Run main with both positional and -o flag (positional should win)
         with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), str(positional_output), '-o', str(flag_output)]):
-            result = main()
+            result = run_main()
             assert result == 0
 
         # Verify only positional output file was created
@@ -91,7 +96,7 @@ class TestMainFunction:
 
         # Run main with markdown file input
         with patch.object(sys, 'argv', ['playwrightmd', str(md_file)]):
-            result = main()
+            result = run_main()
             assert result == 0
 
         # Capture output
@@ -118,7 +123,7 @@ class TestMainFunction:
 
         # Run main with HTML file input (--no-js avoids Playwright for unit tests)
         with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file)]):
-            result = main()
+            result = run_main()
             assert result == 0
 
         # Capture output
@@ -139,7 +144,7 @@ class TestMainFunction:
 
         # Run main with --raw flag (--no-js avoids Playwright for unit tests)
         with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--raw']):
-            result = main()
+            result = run_main()
             assert result == 0
 
         # Capture output
@@ -159,7 +164,7 @@ class TestMainFunction:
 
         # Run main with text file input
         with patch.object(sys, 'argv', ['playwrightmd', str(txt_file)]):
-            result = main()
+            result = run_main()
             assert result == 0
 
         # Capture output
@@ -174,7 +179,7 @@ class TestMainFunction:
 
         # Run main with JSON file input
         with patch.object(sys, 'argv', ['playwrightmd', str(json_file)]):
-            result = main()
+            result = run_main()
             assert result == 0
 
         # Capture output - JSON should pass through unchanged
@@ -189,8 +194,8 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with --truncate-link flag (default 42)
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link']):
-            result = main()
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link', '42']):
+            result = run_main()
             assert result == 0
 
         # Capture output
@@ -212,7 +217,7 @@ class TestMainFunction:
 
         # Run main with --truncate-link 20
         with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link', '20']):
-            result = main()
+            result = run_main()
             assert result == 0
 
         # Capture output
@@ -230,8 +235,8 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with --truncate-link
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link']):
-            result = main()
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link', '42']):
+            result = run_main()
             assert result == 0
 
         # Capture output

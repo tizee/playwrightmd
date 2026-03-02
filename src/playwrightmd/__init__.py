@@ -8,7 +8,11 @@ Supports three input modes:
   - Stdin: cat page.html | playwrightmd -o output.md
 """
 
-import argparse
+from importlib.metadata import version as get_version
+
+__version__ = get_version("playwrightmd")
+
+import click
 import sys
 from enum import Enum
 from pathlib import Path
@@ -376,166 +380,115 @@ def write_output(markdown: str, output: str | None) -> None:
     if output:
         Path(output).write_text(markdown, encoding="utf-8")
     else:
-        print(markdown, end="")
+        click.echo(markdown, nl=False)
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser."""
-    parser = argparse.ArgumentParser(
-        prog="playwrightmd",
-        description="Convert HTML to Markdown using Playwright for JS-rendered content",
-        epilog="""
-Examples:
-  playwrightmd https://example.com output.md
-  playwrightmd https://example.com -o output.md
-  playwrightmd page.html output.md
-  cat page.html | playwrightmd output.md
-  curl -s https://example.com | playwrightmd
-        """,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-
-    parser.add_argument(
-        "input",
-        nargs="?",
-        help="URL or file path (omit or use '-' for stdin)",
-    )
-
-    parser.add_argument(
-        "output",
-        nargs="?",
-        help="Output file path (optional, default: stdout)",
-    )
-
-    parser.add_argument(
-        "-o", "--output",
-        dest="output_flag",
-        help="Output file (alternative to positional argument)",
-    )
-
-    parser.add_argument(
-        "--wait-for",
-        metavar="SELECTOR",
-        help="CSS selector to wait for before extracting content",
-    )
-
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=30000,
-        metavar="MS",
-        help="Page load timeout in milliseconds (default: 30000)",
-    )
-
-    parser.add_argument(
-        "--no-js",
-        action="store_true",
-        help="Skip Playwright rendering, use simple HTTP fetch",
-    )
-
-    parser.add_argument(
-        "-s", "--selector",
-        metavar="CSS",
-        help="CSS selector for main content (e.g., 'article', '.content', '#main')",
-    )
-
-    parser.add_argument(
-        "--user-agent",
-        metavar="UA",
-        help="Custom User-Agent string",
-    )
-
-    parser.add_argument(
-        "--proxy-url",
-        metavar="URL",
-        help="Proxy URL for requests (e.g., 'http://proxy:8080')",
-    )
-
-    parser.add_argument(
-        "--headless",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Run browser in headless mode (default: True, use --no-headless for headed)",
-    )
-
-    parser.add_argument(
-        "--wait-until",
-        choices=WAIT_UNTIL_CHOICES,
-        default="domcontentloaded",
-        help="When to consider navigation succeeded (default: domcontentloaded)",
-    )
-
-    parser.add_argument(
-        "--ignore-robots-txt",
-        action="store_true",
-        help="Ignore robots.txt restrictions (Playwright ignores by default)",
-    )
-
-    parser.add_argument(
-        "--raw",
-        action="store_true",
-        help="Output raw HTML without converting to Markdown",
-    )
-
-    parser.add_argument(
-        "--truncate-link",
-        type=int,
-        const=42,
-        nargs="?",
-        metavar="N",
-        help="Truncate URLs in markdown links longer than N chars (default: 42 when flag is used)",
-    )
-
-    return parser
+def validate_truncate_link(ctx: click.Context, param: click.Parameter, value: int | None) -> int | None:
+    """Callback: if --truncate-link is used without value, default to 42."""
+    # When flag is used without a value, Click passes the default (42)
+    # When not used at all, Click passes None
+    return value
 
 
-def main() -> int:
-    """Main entry point."""
-    parser = create_parser()
-    args = parser.parse_args()
+@click.command()
+@click.argument("input", required=False)
+@click.argument("output", required=False)
+@click.option("-o", "--output", "output_opt", help="Output file (alternative to positional argument)")
+@click.option("--wait-for", metavar="SELECTOR", help="CSS selector to wait for before extracting content")
+@click.option("--timeout", type=int, default=30000, metavar="MS", help="Page load timeout in milliseconds (default: 30000)")
+@click.option("--no-js", is_flag=True, help="Skip Playwright rendering, use simple HTTP fetch")
+@click.option("-s", "--selector", metavar="CSS", help="CSS selector for main content (e.g., 'article', '.content', '#main')")
+@click.option("--user-agent", metavar="UA", help="Custom User-Agent string")
+@click.option("--proxy-url", metavar="URL", help="Proxy URL for requests (e.g., 'http://proxy:8080')")
+@click.option("--headless/--no-headless", default=True, help="Run browser in headless mode (default: headless)")
+@click.option("--wait-until", type=click.Choice(WAIT_UNTIL_CHOICES), default="domcontentloaded", help="When to consider navigation succeeded")
+@click.option("--ignore-robots-txt", is_flag=True, help="Ignore robots.txt restrictions")
+@click.option("--raw", is_flag=True, help="Output raw HTML without converting to Markdown")
+@click.option(
+    "--truncate-link",
+    type=int,
+    default=None,
+    is_eager=True,
+    callback=validate_truncate_link,
+    metavar="N",
+    help="Truncate URLs in markdown links longer than N chars (default: 42)",
+)
+@click.option("--version", "show_version", is_flag=True, help="Show version information")
+def main(
+    input: str | None,
+    output: str | None,
+    output_opt: str | None,
+    wait_for: str | None,
+    timeout: int,
+    no_js: bool,
+    selector: str | None,
+    user_agent: str | None,
+    proxy_url: str | None,
+    headless: bool,
+    wait_until: str,
+    ignore_robots_txt: bool,
+    raw: bool,
+    truncate_link: int | None,
+    show_version: bool,
+) -> int:
+    """Convert HTML to Markdown using Playwright for JS-rendered content.
+
+    \b
+    Examples:
+      playwrightmd https://example.com output.md
+      playwrightmd https://example.com -o output.md
+      playwrightmd page.html output.md
+      cat page.html | playwrightmd output.md
+      curl -s https://example.com | playwrightmd
+    """
+    if show_version:
+        click.secho(f"playwrightmd ", fg="cyan", bold=True, nl=False)
+        click.secho(__version__, fg="green", bold=True)
+        click.secho("Convert HTML to Markdown using Playwright", fg="white")
+        return 0
 
     # Determine output file: prefer positional arg, fallback to -o/--output flag
-    output_file = args.output if args.output else args.output_flag
+    output_file = output if output else output_opt
 
     try:
-        input_type = detect_input_type(args.input)
+        input_type = detect_input_type(input)
 
         content, is_markdown = get_html_content(
-            args.input,
+            input,
             input_type,
-            timeout=args.timeout,
-            wait_for=args.wait_for,
-            no_js=args.no_js,
-            user_agent=args.user_agent,
-            proxy_url=args.proxy_url,
-            headless=args.headless,
-            wait_until=args.wait_until,
+            timeout=timeout,
+            wait_for=wait_for,
+            no_js=no_js,
+            user_agent=user_agent,
+            proxy_url=proxy_url,
+            headless=headless,
+            wait_until=wait_until,
         )
 
-        if args.raw:
-            output = content
+        if raw:
+            out_content = content
         elif is_markdown:
             # Skip conversion, output raw markdown
-            output = content
+            out_content = content
         else:
-            output = html_to_markdown(content, selector=args.selector)
+            out_content = html_to_markdown(content, selector=selector)
 
         # Apply link truncation if requested
-        if args.truncate_link is not None:
-            output = truncate_markdown_links(output, max_length=args.truncate_link)
+        if truncate_link is not None:
+            out_content = truncate_markdown_links(out_content, max_length=truncate_link)
 
-        write_output(output, output_file)
+        write_output(out_content, output_file)
 
         return 0
 
-    except PlaywrightTimeout as e:
-        print(f"Error: Page load timed out after {args.timeout}ms", file=sys.stderr)
+    except PlaywrightTimeout:
+        click.secho(f"Error: Page load timed out after {timeout}ms", fg="red", err=True)
         return 1
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        click.secho(f"Error: {e}", fg="red", err=True)
         return 1
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        click.secho(f"Error: {e}", fg="red", err=True)
         return 1
 
 
