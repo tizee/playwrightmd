@@ -36,8 +36,8 @@ class TestMainFunction:
         """
         html_file.write_text(html_content, encoding="utf-8")
 
-        # Run main with positional output argument
-        with patch.object(sys, 'argv', ['playwrightmd', str(html_file), str(output_file)]):
+        # Run main with positional output argument (--no-js avoids Playwright for unit tests)
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), str(output_file)]):
             result = main()
             assert result == 0
 
@@ -55,7 +55,7 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with -o flag (backward compatibility)
-        with patch.object(sys, 'argv', ['playwrightmd', str(html_file), '-o', str(output_file)]):
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '-o', str(output_file)]):
             result = main()
             assert result == 0
 
@@ -73,7 +73,7 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with both positional and -o flag (positional should win)
-        with patch.object(sys, 'argv', ['playwrightmd', str(html_file), str(positional_output), '-o', str(flag_output)]):
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), str(positional_output), '-o', str(flag_output)]):
             result = main()
             assert result == 0
 
@@ -116,8 +116,8 @@ class TestMainFunction:
         """
         html_file.write_text(html_content, encoding="utf-8")
 
-        # Run main with HTML file input
-        with patch.object(sys, 'argv', ['playwrightmd', str(html_file)]):
+        # Run main with HTML file input (--no-js avoids Playwright for unit tests)
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file)]):
             result = main()
             assert result == 0
 
@@ -137,8 +137,8 @@ class TestMainFunction:
         html_content = "<html><body><h1>Test</h1></body></html>"
         html_file.write_text(html_content, encoding="utf-8")
 
-        # Run main with --raw flag
-        with patch.object(sys, 'argv', ['playwrightmd', str(html_file), '--raw']):
+        # Run main with --raw flag (--no-js avoids Playwright for unit tests)
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--raw']):
             result = main()
             assert result == 0
 
@@ -189,7 +189,7 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with --truncate-link flag (default 42)
-        with patch.object(sys, 'argv', ['playwrightmd', str(html_file), '--truncate-link']):
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link']):
             result = main()
             assert result == 0
 
@@ -211,7 +211,7 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with --truncate-link 20
-        with patch.object(sys, 'argv', ['playwrightmd', str(html_file), '--truncate-link', '20']):
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link', '20']):
             result = main()
             assert result == 0
 
@@ -230,7 +230,7 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with --truncate-link
-        with patch.object(sys, 'argv', ['playwrightmd', str(html_file), '--truncate-link']):
+        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link']):
             result = main()
             assert result == 0
 

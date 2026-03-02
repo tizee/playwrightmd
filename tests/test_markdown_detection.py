@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+from urllib.error import HTTPError
 from unittest.mock import patch, MagicMock
 from playwrightmd import (
     is_markdown_file,
@@ -293,3 +294,94 @@ class TestCloudflareMarkdownForAgents:
         # Verify logging occurred to stderr
         captured = capsys.readouterr()
         assert "Markdown tokens" in captured.err or "1500" in captured.err
+
+
+class TestHTTPPrefetchFallback:
+    """Tests for HTTP prefetch fallback to Playwright.
+
+    When HTTP prefetch fails (e.g., 403 Forbidden), get_html_content should
+    fall back to Playwright instead of propagating the error.
+    """
+
+    @patch('playwrightmd.fetch_with_playwright')
+    @patch('urllib.request.urlopen')
+    def test_http_403_falls_back_to_playwright(self, mock_urlopen, mock_playwright):
+        """When prefetch gets HTTP 403, should fall back to Playwright."""
+        # Simulate 403 from urllib prefetch
+        mock_urlopen.side_effect = HTTPError(
+            url="https://example.com/page",
+            code=403,
+            msg="Forbidden",
+            hdrs={},
+            fp=None,
+        )
+
+        # Playwright fallback returns rendered HTML
+        mock_playwright.return_value = "<html><body><h1>Rendered</h1></body></html>"
+
+        content, is_markdown = get_html_content(
+            "https://example.com/page",
+            InputType.URL,
+        )
+
+        # Should have fallen back to Playwright
+        mock_playwright.assert_called_once()
+        assert "<h1>Rendered</h1>" in content
+        assert is_markdown is False
+
+    @patch('playwrightmd.fetch_with_playwright')
+    @patch('urllib.request.urlopen')
+    def test_http_500_falls_back_to_playwright(self, mock_urlopen, mock_playwright):
+        """When prefetch gets HTTP 500, should fall back to Playwright."""
+        mock_urlopen.side_effect = HTTPError(
+            url="https://example.com/page",
+            code=500,
+            msg="Internal Server Error",
+            hdrs={},
+            fp=None,
+        )
+
+        mock_playwright.return_value = "<html><body><h1>Works</h1></body></html>"
+
+        content, is_markdown = get_html_content(
+            "https://example.com/page",
+            InputType.URL,
+        )
+
+        mock_playwright.assert_called_once()
+        assert "<h1>Works</h1>" in content
+
+    @patch('playwrightmd.fetch_with_playwright')
+    @patch('urllib.request.urlopen')
+    def test_connection_error_falls_back_to_playwright(self, mock_urlopen, mock_playwright):
+        """When prefetch gets a connection error, should fall back to Playwright."""
+        from urllib.error import URLError
+        mock_urlopen.side_effect = URLError("Connection refused")
+
+        mock_playwright.return_value = "<html><body><h1>Fallback</h1></body></html>"
+
+        content, is_markdown = get_html_content(
+            "https://example.com/page",
+            InputType.URL,
+        )
+
+        mock_playwright.assert_called_once()
+        assert "<h1>Fallback</h1>" in content
+
+    @patch('urllib.request.urlopen')
+    def test_http_error_with_no_js_still_raises(self, mock_urlopen):
+        """When --no-js is set and prefetch fails, there's no Playwright fallback, so error should propagate."""
+        mock_urlopen.side_effect = HTTPError(
+            url="https://example.com/page",
+            code=403,
+            msg="Forbidden",
+            hdrs={},
+            fp=None,
+        )
+
+        with pytest.raises(HTTPError):
+            get_html_content(
+                "https://example.com/page",
+                InputType.URL,
+                no_js=True,
+            )

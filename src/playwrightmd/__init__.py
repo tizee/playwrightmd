@@ -316,23 +316,31 @@ def get_html_content(
         # browser for sites that support Cloudflare Markdown for Agents or serve
         # complete static HTML.
         import urllib.request
+        import urllib.error
         headers = {
             "User-Agent": user_agent or DEFAULT_USER_AGENT,
             "Accept": "text/markdown, text/html",
         }
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
-            content_type = response.getheader("Content-Type")
-            content = response.read().decode("utf-8")
-            # Cloudflare Markdown for Agents: server converted HTML to markdown
-            if is_markdown_content_type(content_type):
-                markdown_tokens = response.getheader("X-Markdown-Tokens")
-                if markdown_tokens:
-                    print(f"[Cloudflare] Markdown tokens: {markdown_tokens}", file=sys.stderr)
-                return (content, True)
-            # For HTML responses, skip Playwright if --no-js or no wait_for selector
+        try:
+            with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
+                content_type = response.getheader("Content-Type")
+                content = response.read().decode("utf-8")
+                # Cloudflare Markdown for Agents: server converted HTML to markdown
+                if is_markdown_content_type(content_type):
+                    markdown_tokens = response.getheader("X-Markdown-Tokens")
+                    if markdown_tokens:
+                        print(f"[Cloudflare] Markdown tokens: {markdown_tokens}", file=sys.stderr)
+                    return (content, True)
+                # For HTML responses, skip Playwright if --no-js
+                if no_js:
+                    return (content, False)
+        except urllib.error.URLError:
+            # HTTP errors (403, 500, etc.) or connection failures --
+            # fall through to Playwright. If no_js is set, there's no
+            # fallback, so re-raise.
             if no_js:
-                return (content, False)
+                raise
 
         # Fall back to Playwright for JS-rendered content
         return fetch_with_playwright(
