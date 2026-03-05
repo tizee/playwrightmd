@@ -5,10 +5,12 @@ Convert HTML to Markdown using Playwright. Handles JavaScript-rendered content, 
 ## Features
 
 - **[Cloudflare Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/)**: Automatically fetches pre-converted markdown from Cloudflare-enabled sites (~80% token reduction, no browser needed)
+- **FxTwitter API for X/Twitter**: Transparently fetches tweets and articles from x.com/twitter.com via FxTwitter API — bypasses anti-scraping without browser launch
 - **HTTP prefetch with Playwright fallback**: Lightweight HTTP fetch first, Playwright only when JS rendering is needed
 - **JavaScript rendering**: Uses Playwright to render SPAs and dynamic content
 - **Bot detection bypass**: Handles Cloudflare and similar protections
-- **Smart content extraction**: Removes sidebars, navigation, and boilerplate
+- **Smart content extraction**: Advanced readability rules — removes sidebars, navigation, ads, metadata, and boilerplate using 600+ patterns
+- **Absolute URL resolution**: Converts relative links to absolute URLs in markdown output
 - **Multiple input modes**: URL, local file, or stdin
 - **CSS selector support**: Target specific content areas
 - **Markdown detection**: Automatically skips conversion for raw markdown files/URLs
@@ -292,6 +294,37 @@ playwrightmd https://developers.cloudflare.com/workers/
 - Near-instant response (no browser startup overhead)
 - Works transparently — no extra flags needed
 
+### X/Twitter Support (FxTwitter API)
+
+For x.com and twitter.com URLs, playwrightmd uses the [FxTwitter API](https://github.com/FixTweet/FxTwitter) to fetch content without triggering anti-scraping measures — no browser needed.
+
+```bash
+# Fetch a tweet
+playwrightmd https://x.com/elonmusk/status/1234567890
+
+# Fetch an X article
+playwrightmd https://x.com/elonmusk/article/1234567890
+```
+
+**How it works:**
+1. URL is detected as x.com or twitter.com with `/status/` or `/article/` path
+2. Extracts username and tweet/article ID from URL
+3. Calls `api.fxtwitter.com` API directly
+4. Returns formatted markdown with frontmatter (author, source, etc.)
+5. If API fails, falls back to Playwright
+
+**Output includes:**
+- Full tweet text with formatting (italic, mentions, links)
+- Photos as markdown images
+- Article content (headers, paragraphs, lists, code blocks)
+- YAML frontmatter with author info
+
+**Benefits:**
+- No browser launch needed for x.com content
+- Bypasses rate limiting and anti-scraping
+- Works for both tweets and long-form articles
+- Preserves formatting (italic, mentions, links)
+
 ### Navigation lifecycle (`--wait-until`)
 
 The `--wait-until` option controls when Playwright considers the page "loaded" and extracts content:
@@ -334,9 +367,35 @@ playwrightmd https://example.com --wait-until networkidle
 
 ### Content extraction heuristics
 
-Automatically removes:
-- `<script>`, `<style>`, `<noscript>`, `<iframe>`, `<svg>`
-- `<nav>`, `<aside>`, `<header>`, `<footer>`
+Content cleaning rules provide consistent, high-quality extraction:
+
+**Removes:**
+- Scripts, styles, noscript, iframes (except video embeds)
+- Navigation, sidebars, headers, footers
+- Ads, banners, promo content
+- Comments sections, author bios
+- Newsletter signups, social share buttons
+- Hidden/visibility:hidden elements
+- Print-only elements
+- Tables of contents, tag lists
+- Breadcrumbs, pagination
+
+**Content detection:**
+- Prioritized selectors: `#post`, `.post-content`, `article`, `main`, etc.
+- Content scoring based on text density, paragraph count, link density
+- Footnote and citation detection
+- Heading normalization (H1 → H2, remove title-matching headings)
+
+**URL handling:**
+- Relative URLs converted to absolute using base URL
+- Supports href, src, and srcset attributes
+- Preserves video embeds (YouTube, Vimeo)
+
+### Anti-detection measures
+
+- Realistic user agent and viewport
+- Removes `navigator.webdriver` flag
+- Disables automation detection features
 - Elements with sidebar/navigation classes
 - Elements with navigation/complementary roles
 

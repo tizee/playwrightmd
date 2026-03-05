@@ -1,4 +1,4 @@
-.PHONY: install sync test dev clean help
+.PHONY: install sync test dev clean help fmt lint typecheck
 
 # Playwright browsers are stored in a shared system cache:
 #   macOS:  ~/Library/Caches/ms-playwright/
@@ -22,10 +22,19 @@ $(STAMP): uv.lock
 	@touch $@
 
 install-tool: install ## Install as global uv tool
-	uv tool install .
+	uv tool install . --reinstall
 
 test: ## Run tests
 	uv run pytest tests/ -v
+
+fmt: ## Format code with ruff
+	uv run ruff format src/ tests/
+
+lint: ## Lint code with ruff
+	uv run ruff check src/ tests/
+
+typecheck: ## Type check with pyright
+	uv run pyright
 
 dev: install test ## Setup dev environment and run tests
 

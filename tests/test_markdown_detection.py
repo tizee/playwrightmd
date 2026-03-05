@@ -1,14 +1,15 @@
-import pytest
-from pathlib import Path
 from urllib.error import HTTPError
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from playwrightmd import (
-    is_markdown_file,
-    is_markdown_content_type,
-    is_text_file,
-    is_text_content_type,
-    get_html_content,
     InputType,
+    is_text_file,
+    get_html_content,
+    is_markdown_file,
+    is_text_content_type,
+    is_markdown_content_type,
 )
 
 
@@ -61,7 +62,7 @@ class TestMarkdownDetection:
         md_file.write_text(md_content, encoding="utf-8")
 
         # Test that it's detected as markdown
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             str(md_file),
             InputType.FILE,
             no_js=True,
@@ -77,7 +78,7 @@ class TestMarkdownDetection:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Test that it's NOT detected as markdown
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             str(html_file),
             InputType.FILE,
             no_js=True,
@@ -161,7 +162,7 @@ class TestTextDetection:
         txt_file.write_text(txt_content, encoding="utf-8")
 
         # Test that it's detected as text (skip conversion)
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             str(txt_file),
             InputType.FILE,
             no_js=True,
@@ -177,7 +178,7 @@ class TestTextDetection:
         json_file.write_text(json_content, encoding="utf-8")
 
         # Test that it's detected as text (skip conversion)
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             str(json_file),
             InputType.FILE,
             no_js=True,
@@ -195,7 +196,7 @@ class TestCloudflareMarkdownForAgents:
     token consumption by ~80%.
     """
 
-    @patch('urllib.request.urlopen')
+    @patch("urllib.request.urlopen")
     def test_url_fetch_sends_accept_header_with_markdown_and_html(self, mock_urlopen):
         """Verify URL fetch includes Accept: text/markdown, text/html header for Cloudflare support."""
         # Setup mock response
@@ -207,7 +208,7 @@ class TestCloudflareMarkdownForAgents:
 
         # Call get_html_content for a URL that doesn't look like a file
         # Using a domain that doesn't have a file extension
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             "https://example.com",
             InputType.URL,
             no_js=True,  # Use simple HTTP fetch
@@ -224,7 +225,7 @@ class TestCloudflareMarkdownForAgents:
         accept_header = request_obj.get_header("Accept")
         assert accept_header == "text/markdown, text/html"
 
-    @patch('urllib.request.urlopen')
+    @patch("urllib.request.urlopen")
     def test_cloudflare_markdown_response_returns_is_markdown_true(self, mock_urlopen):
         """When server returns text/markdown Content-Type, should return is_markdown=True."""
         # Setup mock response simulating Cloudflare Markdown response
@@ -238,7 +239,7 @@ class TestCloudflareMarkdownForAgents:
         mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
 
         # Call get_html_content for a URL with .md extension (triggers file fetch)
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             "https://example.com/README.md",
             InputType.URL,
             no_js=True,
@@ -248,7 +249,7 @@ class TestCloudflareMarkdownForAgents:
         assert is_markdown is True
         assert "# Hello World" in content
 
-    @patch('urllib.request.urlopen')
+    @patch("urllib.request.urlopen")
     def test_cloudflare_html_response_returns_is_markdown_false(self, mock_urlopen):
         """When server returns text/html Content-Type, should return is_markdown=False."""
         # Setup mock response simulating regular HTML response
@@ -261,7 +262,7 @@ class TestCloudflareMarkdownForAgents:
         mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
 
         # Call get_html_content for a URL with .md extension
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             "https://example.com/README.md",
             InputType.URL,
             no_js=True,
@@ -271,7 +272,7 @@ class TestCloudflareMarkdownForAgents:
         assert is_markdown is False
         assert "<h1>Hello</h1>" in content
 
-    @patch('urllib.request.urlopen')
+    @patch("urllib.request.urlopen")
     def test_x_markdown_tokens_header_logged_when_present(self, mock_urlopen, capsys):
         """When server includes X-Markdown-Tokens header, it should be logged."""
         # Setup mock response with X-Markdown-Tokens header
@@ -285,7 +286,7 @@ class TestCloudflareMarkdownForAgents:
         mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
 
         # Call get_html_content
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             "https://example.com/README.md",
             InputType.URL,
             no_js=True,
@@ -303,8 +304,8 @@ class TestHTTPPrefetchFallback:
     fall back to Playwright instead of propagating the error.
     """
 
-    @patch('playwrightmd.fetch_with_playwright')
-    @patch('urllib.request.urlopen')
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("urllib.request.urlopen")
     def test_http_403_falls_back_to_playwright(self, mock_urlopen, mock_playwright):
         """When prefetch gets HTTP 403, should fall back to Playwright."""
         # Simulate 403 from urllib prefetch
@@ -312,14 +313,14 @@ class TestHTTPPrefetchFallback:
             url="https://example.com/page",
             code=403,
             msg="Forbidden",
-            hdrs={},
+            hdrs=None,  # type: ignore[arg-type]
             fp=None,
         )
 
         # Playwright fallback returns rendered HTML
         mock_playwright.return_value = "<html><body><h1>Rendered</h1></body></html>"
 
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             "https://example.com/page",
             InputType.URL,
         )
@@ -329,21 +330,21 @@ class TestHTTPPrefetchFallback:
         assert "<h1>Rendered</h1>" in content
         assert is_markdown is False
 
-    @patch('playwrightmd.fetch_with_playwright')
-    @patch('urllib.request.urlopen')
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("urllib.request.urlopen")
     def test_http_500_falls_back_to_playwright(self, mock_urlopen, mock_playwright):
         """When prefetch gets HTTP 500, should fall back to Playwright."""
         mock_urlopen.side_effect = HTTPError(
             url="https://example.com/page",
             code=500,
             msg="Internal Server Error",
-            hdrs={},
+            hdrs=None,  # type: ignore[arg-type]
             fp=None,
         )
 
         mock_playwright.return_value = "<html><body><h1>Works</h1></body></html>"
 
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             "https://example.com/page",
             InputType.URL,
         )
@@ -351,16 +352,17 @@ class TestHTTPPrefetchFallback:
         mock_playwright.assert_called_once()
         assert "<h1>Works</h1>" in content
 
-    @patch('playwrightmd.fetch_with_playwright')
-    @patch('urllib.request.urlopen')
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("urllib.request.urlopen")
     def test_connection_error_falls_back_to_playwright(self, mock_urlopen, mock_playwright):
         """When prefetch gets a connection error, should fall back to Playwright."""
         from urllib.error import URLError
+
         mock_urlopen.side_effect = URLError("Connection refused")
 
         mock_playwright.return_value = "<html><body><h1>Fallback</h1></body></html>"
 
-        content, is_markdown = get_html_content(
+        content, is_markdown, base_url = get_html_content(
             "https://example.com/page",
             InputType.URL,
         )
@@ -368,14 +370,14 @@ class TestHTTPPrefetchFallback:
         mock_playwright.assert_called_once()
         assert "<h1>Fallback</h1>" in content
 
-    @patch('urllib.request.urlopen')
+    @patch("urllib.request.urlopen")
     def test_http_error_with_no_js_still_raises(self, mock_urlopen):
         """When --no-js is set and prefetch fails, there's no Playwright fallback, so error should propagate."""
         mock_urlopen.side_effect = HTTPError(
             url="https://example.com/page",
             code=403,
             msg="Forbidden",
-            hdrs={},
+            hdrs=None,  # type: ignore[arg-type]
             fp=None,
         )
 

@@ -1,8 +1,7 @@
-import pytest
 import sys
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-from playwrightmd import main, detect_input_type, InputType, truncate_markdown_links
+from unittest.mock import patch
+
+from playwrightmd import InputType, main, detect_input_type, truncate_markdown_links
 
 
 def run_main(*args):
@@ -42,7 +41,9 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with positional output argument (--no-js avoids Playwright for unit tests)
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), str(output_file)]):
+        with patch.object(
+            sys, "argv", ["playwrightmd", "--no-js", str(html_file), str(output_file)]
+        ):
             result = run_main()
             assert result == 0
 
@@ -53,32 +54,48 @@ class TestMainFunction:
         assert "This is a paragraph with **bold** text." in output_content
 
     def test_main_with_output_flag_backward_compat(self, tmp_path):
-        # Create test HTML file
+        # Create test HTML file with enough content for readability extraction
         html_file = tmp_path / "test.html"
         output_file = tmp_path / "output.md"
-        html_content = "<html><body><h1>Backward Compat Test</h1></body></html>"
+        html_content = (
+            "<html><body><article><h2>Backward Compat Test</h2>"
+            "<p>Some meaningful content here.</p></article></body></html>"
+        )
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with -o flag (backward compatibility)
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '-o', str(output_file)]):
+        with patch.object(
+            sys, "argv", ["playwrightmd", "--no-js", str(html_file), "-o", str(output_file)]
+        ):
             result = run_main()
             assert result == 0
 
         # Verify output file was created
         assert output_file.exists()
         output_content = output_file.read_text(encoding="utf-8")
-        assert "# Backward Compat Test" in output_content
+        assert "Backward Compat Test" in output_content
 
     def test_main_positional_output_takes_precedence(self, tmp_path):
-        # Create test HTML file
+        # Create test HTML file with enough content for readability extraction
         html_file = tmp_path / "test.html"
         positional_output = tmp_path / "positional.md"
         flag_output = tmp_path / "flag.md"
-        html_content = "<html><body><h1>Precedence Test</h1></body></html>"
+        html_content = "<html><body><article><h2>Precedence Test</h2><p>Some meaningful content here.</p></article></body></html>"
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with both positional and -o flag (positional should win)
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), str(positional_output), '-o', str(flag_output)]):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "playwrightmd",
+                "--no-js",
+                str(html_file),
+                str(positional_output),
+                "-o",
+                str(flag_output),
+            ],
+        ):
             result = run_main()
             assert result == 0
 
@@ -86,7 +103,7 @@ class TestMainFunction:
         assert positional_output.exists()
         assert not flag_output.exists()
         output_content = positional_output.read_text(encoding="utf-8")
-        assert "# Precedence Test" in output_content
+        assert "Precedence Test" in output_content
 
     def test_main_with_markdown_file(self, tmp_path, capsys):
         # Create test markdown file
@@ -95,7 +112,7 @@ class TestMainFunction:
         md_file.write_text(md_content, encoding="utf-8")
 
         # Run main with markdown file input
-        with patch.object(sys, 'argv', ['playwrightmd', str(md_file)]):
+        with patch.object(sys, "argv", ["playwrightmd", str(md_file)]):
             result = run_main()
             assert result == 0
 
@@ -122,7 +139,7 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with HTML file input (--no-js avoids Playwright for unit tests)
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file)]):
+        with patch.object(sys, "argv", ["playwrightmd", "--no-js", str(html_file)]):
             result = run_main()
             assert result == 0
 
@@ -143,7 +160,7 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with --raw flag (--no-js avoids Playwright for unit tests)
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--raw']):
+        with patch.object(sys, "argv", ["playwrightmd", "--no-js", str(html_file), "--raw"]):
             result = run_main()
             assert result == 0
 
@@ -163,7 +180,7 @@ class TestMainFunction:
         txt_file.write_text(txt_content, encoding="utf-8")
 
         # Run main with text file input
-        with patch.object(sys, 'argv', ['playwrightmd', str(txt_file)]):
+        with patch.object(sys, "argv", ["playwrightmd", str(txt_file)]):
             result = run_main()
             assert result == 0
 
@@ -178,7 +195,7 @@ class TestMainFunction:
         json_file.write_text(json_content, encoding="utf-8")
 
         # Run main with JSON file input
-        with patch.object(sys, 'argv', ['playwrightmd', str(json_file)]):
+        with patch.object(sys, "argv", ["playwrightmd", str(json_file)]):
             result = run_main()
             assert result == 0
 
@@ -194,7 +211,9 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with --truncate-link flag (default 42)
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link', '42']):
+        with patch.object(
+            sys, "argv", ["playwrightmd", "--no-js", str(html_file), "--truncate-link", "42"]
+        ):
             result = run_main()
             assert result == 0
 
@@ -216,7 +235,9 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with --truncate-link 20
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link', '20']):
+        with patch.object(
+            sys, "argv", ["playwrightmd", "--no-js", str(html_file), "--truncate-link", "20"]
+        ):
             result = run_main()
             assert result == 0
 
@@ -235,7 +256,9 @@ class TestMainFunction:
         html_file.write_text(html_content, encoding="utf-8")
 
         # Run main with --truncate-link
-        with patch.object(sys, 'argv', ['playwrightmd', '--no-js', str(html_file), '--truncate-link', '42']):
+        with patch.object(
+            sys, "argv", ["playwrightmd", "--no-js", str(html_file), "--truncate-link", "42"]
+        ):
             result = run_main()
             assert result == 0
 

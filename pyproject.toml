@@ -32,6 +32,55 @@ packages = ["src/playwrightmd"]
 [dependency-groups]
 dev = [
     "hatchling>=1.28.0",
+    "pyright>=1.1.408",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
+    "ruff>=0.15.4",
 ]
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+include = ["src", "tests"]
+exclude = ["**/__pycache__", ".venv", "build", "dist"]
+reportImportCycles = false
+reportPrivateUsage = false
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [".venv", "dist", "build", "__pypackages__"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+  "F",    # Pyflakes
+  "E",    # pycodestyle errors
+  "I",    # isort
+  "UP",   # pyupgrade
+  "B",    # bugbear
+  "C4",   # comprehensions
+  "SIM",  # simplify
+  "PIE",  # flake8-pie
+  "PERF", # perflint
+  "PGH",  # pygrep-hooks
+  "T10",  # debugger
+]
+ignore = [
+  "E501",  # line too long -- handled by formatter
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+length-sort = true
+length-sort-straight = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B"]
