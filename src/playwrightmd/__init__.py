@@ -1372,15 +1372,9 @@ def get_html_content(
 
         # x.com/twitter.com URLs — try FxTwitter API first
         if is_x_twitter_url(url):
-            print("[FxTwitter] Attempting to fetch via FxTwitter API...", file=sys.stderr)
             tweet = fetch_fxtwitter(url, timeout)
             if tweet:
-                print(
-                    f"[FxTwitter] Successfully fetched content from @{tweet.author_handle}",
-                    file=sys.stderr,
-                )
                 return (fxtwitter_to_markdown(tweet, url), True, url)
-            print("[FxTwitter] API fetch failed, falling back to Playwright...", file=sys.stderr)
 
         # Lightweight HTTP prefetch — may short-circuit Playwright
         try:

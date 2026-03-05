@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-03-06
+
+### Added
+- FxTwitter API support for X/Twitter URLs — fetches tweet content without browser launch
+- Readability-style content extraction with 600+ pattern removal rules
+- Absolute URL resolution for relative links in markdown output
+- Comprehensive test coverage for content extraction in test_readability.py
+- pyright and ruff dev dependencies with full configuration
+- Makefile targets for fmt, lint, and typecheck
+
+### Changed
+- Remove FxTwitter diagnostic prints from stderr for clean output
+
 ## [0.4.2] - 2026-03-03
 
 ### Changed
@@ -64,7 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release with HTML to Markdown conversion using Playwright
 
-[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/tizee/playwrightmd/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.2
 [0.4.1]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.1
 [0.4.0]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.0
