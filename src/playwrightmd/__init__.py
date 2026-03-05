@@ -18,6 +18,7 @@ import json
 import urllib.error
 import urllib.request
 from enum import Enum
+from types import MappingProxyType
 from typing import Literal, cast
 from pathlib import Path
 from dataclasses import dataclass
@@ -27,7 +28,11 @@ import click
 from bs4 import Comment, BeautifulSoup
 from wcwidth import wcswidth
 from markdownify import markdownify as md
-from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
+from patchright.sync_api import (
+    Error as PlaywrightError,
+    TimeoutError as PlaywrightTimeout,
+    sync_playwright,
+)
 
 
 class InputType(Enum):
@@ -869,12 +874,71 @@ def detect_input_type(input_arg: str | None) -> InputType:
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
 
 WaitUntilType = Literal["load", "domcontentloaded", "networkidle", "commit"]
 
 WAIT_UNTIL_CHOICES = list(WaitUntilType.__args__)  # type: ignore[attr-defined]
+
+
+# Chromium args that reduce detection surface and speed up launch.
+# Curated from Scrapling's engine constants — only args relevant to
+# a single-page fetcher (no crawler-specific flags like page pooling).
+STEALTH_ARGS = (
+    "--disable-blink-features=AutomationControlled",
+    "--no-first-run",
+    "--no-service-autorun",
+    "--no-pings",
+    "--disable-infobars",
+    "--disable-breakpad",
+    "--disable-hang-monitor",
+    "--disable-session-crashed-bubble",
+    "--password-store=basic",
+    "--homepage=about:blank",
+    # Fingerprint hardening
+    "--disable-sync",
+    "--disable-translate",
+    "--disable-logging",
+    "--mute-audio",
+    "--hide-scrollbars",
+    "--lang=en-US",
+    "--accept-lang=en-US",
+    "--start-maximized",
+    "--force-color-profile=srgb",
+    "--font-render-hinting=none",
+    "--disable-client-side-phishing-detection",
+    "--disable-background-networking",
+    "--metrics-recording-only",
+    "--safebrowsing-disable-auto-update",
+    "--autoplay-policy=user-gesture-required",
+    # WebRTC leak prevention (important when using proxies)
+    "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+    "--force-webrtc-ip-handling-policy",
+    # Misc performance/stealth
+    "--disable-dev-shm-usage",
+    "--disable-renderer-backgrounding",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-ipc-flooding-protection",
+    "--disable-background-timer-throttling",
+    "--enable-features=NetworkService,NetworkServiceInProcess",
+    "--disable-features=AudioServiceOutOfProcess,TranslateUI",
+    "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4",
+)
+
+# Context options that present a realistic desktop browser fingerprint.
+# Frozen via MappingProxyType so callers can't accidentally mutate shared state.
+STEALTH_CONTEXT_OPTIONS: MappingProxyType[str, object] = MappingProxyType({
+    "screen": MappingProxyType({"width": 1920, "height": 1080}),
+    "viewport": MappingProxyType({"width": 1920, "height": 1080}),
+    "locale": "en-US",
+    "timezone_id": "America/New_York",
+    "color_scheme": "dark",
+    "device_scale_factor": 2,
+    "is_mobile": False,
+    "has_touch": False,
+    "ignore_https_errors": True,
+})
 
 
 def fetch_with_playwright(
@@ -886,11 +950,11 @@ def fetch_with_playwright(
     headless: bool = True,
     wait_until: WaitUntilType = "domcontentloaded",
 ) -> str:
-    """Fetch URL using Playwright and return rendered HTML."""
+    """Fetch URL using Playwright (patchright) and return rendered HTML."""
     with sync_playwright() as p:
-        launch_args = {
+        launch_args: dict = {
             "headless": headless,
-            "args": ["--disable-blink-features=AutomationControlled"],
+            "args": list(STEALTH_ARGS),
         }
 
         if proxy_url:
@@ -898,27 +962,19 @@ def fetch_with_playwright(
 
         browser = p.chromium.launch(**launch_args)
 
-        # Create context with realistic browser fingerprint
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=user_agent or DEFAULT_USER_AGENT,
-            locale="en-US",
-            timezone_id="America/New_York",
-        )
+        # Unfreeze MappingProxyType into plain dicts for patchright's API
+        context_opts: dict = {
+            k: dict(v) if isinstance(v, MappingProxyType) else v
+            for k, v in STEALTH_CONTEXT_OPTIONS.items()
+        }
+        context_opts["user_agent"] = user_agent or DEFAULT_USER_AGENT
+
+        context = browser.new_context(**context_opts)
 
         page = context.new_page()
 
-        # Set extra HTTP headers for Cloudflare Markdown for Agents support
-        page.set_extra_http_headers(
-            {
-                "Accept": "text/markdown, text/html",
-            }
-        )
-
-        # Remove webdriver detection
-        page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-        """)
+        # Cloudflare Markdown for Agents support
+        page.set_extra_http_headers({"Accept": "text/markdown, text/html"})
 
         try:
             page.goto(url, timeout=timeout, wait_until=wait_until)
@@ -940,7 +996,10 @@ def render_local_html(
     headless: bool = True,
     wait_until: WaitUntilType = "domcontentloaded",
 ) -> str:
-    """Render local HTML with Playwright to execute any JavaScript."""
+    """Render local HTML with patchright to execute any JavaScript.
+
+    No stealth args needed -- local content never contacts a remote server.
+    """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         page = browser.new_page()
@@ -1565,6 +1624,17 @@ def main(
 
     except PlaywrightTimeout:
         click.secho(f"Error: Page load timed out after {timeout}ms", fg="red", err=True)
+        return 1
+    except PlaywrightError as e:
+        msg = str(e)
+        if "Executable doesn't exist" in msg or "browserType.launch" in msg:
+            click.secho(
+                "Error: Browser not found. Run 'patchright install chromium' to install it.",
+                fg="red",
+                err=True,
+            )
+        else:
+            click.secho(f"Error: {e}", fg="red", err=True)
         return 1
     except ValueError as e:
         click.secho(f"Error: {e}", fg="red", err=True)
