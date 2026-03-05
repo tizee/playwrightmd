@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-06
+
+### Changed
+- Replace playwright with patchright (patched Playwright fork) for stealth browser automation
+- Add 30+ curated Chromium stealth args from Scrapling for anti-detection and fingerprint hardening
+- Add realistic browser context options (screen size, color scheme, device scale factor, WebRTC leak prevention)
+- Remove manual `navigator.webdriver` JavaScript hack (patchright handles this natively at CDP level)
+- Update default User-Agent to match bundled Chromium 145
+
+### Improved
+- Freeze `STEALTH_CONTEXT_OPTIONS` with `MappingProxyType` to prevent accidental mutation of shared state
+- Add narrow error catch for missing patchright browser with actionable install hint
+- Skip stealth args in `render_local_html` (local content never contacts remote servers)
+- Update Makefile to use `patchright install chromium` instead of `playwright install chromium`
+
 ## [0.4.3] - 2026-03-06
 
 ### Added
@@ -77,7 +92,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release with HTML to Markdown conversion using Playwright
 
-[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/tizee/playwrightmd/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/tizee/playwrightmd/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.2
 [0.4.1]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.1
