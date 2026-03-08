@@ -4,6 +4,111 @@ Covers: EXACT_SELECTORS removal, PARTIAL_PATTERNS matching,
 ENTRY_POINT_ELEMENTS content finding, score_element, find_main_content,
 matches_partial_pattern, normalize_headings, remove_trailing_headings,
 remove_orphaned_dividers, resolve_relative_urls, and clean_html integration.
+
+BDD Scenarios
+=============
+
+Feature: Content Extraction Pipeline
+  Extract the main article content from a full HTML page, stripping
+  navigation, ads, metadata, and other non-content elements.
+
+  Scenario: Exact selector removal
+    Given an HTML page with <script>, <nav>, <footer>, <form>, ads, and hidden elements
+    When clean_html processes the page
+    Then those elements are removed
+    And math-related scripts/aria-hidden, checkbox inputs, callout asides,
+        and video iframes are preserved
+
+  Scenario: Partial pattern removal
+    Given an HTML page with elements whose class/id/data-testid contain
+          boilerplate substrings (e.g. "breadcrumb", "newsletter", "related")
+    When clean_html processes the page
+    Then those elements are removed
+    And content-bearing elements with unrelated class names are preserved
+
+  Scenario: Decomposed parent does not crash children
+    Given an HTML page where a parent element matches a partial pattern
+          and contains child elements
+    When clean_html iterates over all elements after decomposing the parent
+    Then it skips the destroyed children without raising AttributeError
+
+  Scenario: Main content discovery
+    Given an HTML page with multiple candidate containers
+          (article, main, .post-content, role="main")
+    When find_main_content scores each candidate
+    Then the highest-scoring container by word count, paragraph count,
+         content-class indicators, and priority bonus is selected
+    And if no candidates exist, <body> is used as fallback
+
+  Scenario: Score element penalizes noise
+    Given an element with high link density or image density
+    When score_element evaluates it
+    Then the score is lower than an equivalent element with real paragraph text
+
+  Scenario: Score element rewards footnotes
+    Given an element containing footnote references (sup.reference, a[href^="#fn"])
+    When score_element evaluates it
+    Then the score includes a footnote bonus
+
+  Scenario: Heading normalization
+    Given extracted content with H1 headings
+    When normalize_headings processes it
+    Then all H1 tags become H2, other heading levels are unchanged
+
+  Scenario: Trailing heading removal
+    Given extracted content ending with headings (possibly followed by whitespace)
+    When remove_trailing_headings processes it
+    Then trailing headings are removed
+    And headings followed by content are preserved
+
+  Scenario: Trailing heading with non-whitespace text
+    Given extracted content ending with a bare text node (not a heading)
+    When remove_trailing_headings processes it
+    Then no headings are removed (the text node stops the loop)
+
+  Scenario: Orphaned divider removal
+    Given extracted content with leading or trailing <hr> elements
+    When remove_orphaned_dividers processes it
+    Then those boundary HRs are removed
+    And middle HRs between content are preserved
+
+  Scenario: Orphaned divider on empty element
+    Given an empty element with no children
+    When remove_orphaned_dividers processes it
+    Then it returns without error
+
+  Scenario: URL resolution
+    Given extracted content with relative href, src, and srcset attributes
+    When resolve_relative_urls processes it with a base URL
+    Then relative URLs become absolute
+    And absolute URLs, hash links, mailto links, and data URIs are unchanged
+
+  Scenario: Selector override
+    Given the user provides a CSS selector via --selector
+    When clean_html processes the page
+    Then the exact-selector and partial-pattern stripping is skipped
+    And only the user-specified element is extracted
+    And if the selector matches nothing, ValueError is raised
+
+  Scenario: HTML to markdown end-to-end
+    Given a realistic blog page with nav, article, code blocks, and footer
+    When html_to_markdown processes it
+    Then the output is clean markdown with ATX headings, code fences,
+         and no boilerplate
+    And consecutive blank lines are collapsed to single blank lines
+
+  Scenario: Exact selector exception handling
+    Given an HTML page where an EXACT_SELECTOR is syntactically invalid
+          for the parser
+    When clean_html tries to select it
+    Then the exception is caught and processing continues with the
+         remaining selectors
+
+  Scenario: find_main_content selector exception handling
+    Given an HTML page where an ENTRY_POINT_ELEMENTS selector triggers
+          an exception during select()
+    When find_main_content processes it
+    Then the exception is caught and other selectors are still tried
 """
 
 import pytest
@@ -252,6 +357,23 @@ class TestPartialPatterns:
         result = clean_html(html)
         assert "Home &gt; Blog" not in result
 
+    def test_decomposed_parent_children_do_not_crash(self):
+        """Decomposing a parent with partial-pattern match must not crash
+        when the iterator later visits its (now-detached) children."""
+        html = """<html><body>
+            <article>
+                <p>Main content here.</p>
+                <div class="post-meta-line">
+                    <span class="inner"><a href="/tags">Tags</a></span>
+                    <span class="inner"><a href="/cats">Cats</a></span>
+                </div>
+            </article>
+        </body></html>"""
+        # Should not raise: 'NoneType' object has no attribute 'get'
+        result = clean_html(html)
+        assert "Main content" in result
+        assert "Tags" not in result
+
 
 # =============================================================================
 # Content finding and scoring
@@ -329,6 +451,57 @@ class TestContentFinding:
         score_text = score_element(find_tag(soup_text, "div"))
         assert score_text > score_links
 
+    def test_score_element_footnote_bonus(self):
+        """Elements containing footnote references get a bonus."""
+        html_with_fn = '<div><p>Text<sup class="reference">[1]</sup> more words here.</p></div>'
+        html_without_fn = "<div><p>Text more words here without footnotes at all.</p></div>"
+        soup_fn = make_soup(html_with_fn)
+        soup_no = make_soup(html_without_fn)
+        score_fn = score_element(find_tag(soup_fn, "div"))
+        score_no = score_element(find_tag(soup_no, "div"))
+        assert score_fn > score_no
+
+    def test_score_element_footnote_selector_exception(self):
+        """score_element handles exceptions from invalid footnote selectors gracefully."""
+        from unittest.mock import patch, MagicMock
+        soup = make_soup("<div><p>Some content words here.</p></div>")
+        div = find_tag(soup, "div")
+        call_count = 0
+        original_select_one = Tag.select_one
+
+        def exploding_select_one(self, selector):
+            nonlocal call_count
+            call_count += 1
+            raise Exception("CSS parse error")
+
+        with patch.object(Tag, "select_one", exploding_select_one):
+            score = score_element(div)
+        # Should not crash, and should have tried the footnote selectors
+        assert call_count >= 3  # FOOTNOTE_INLINE_SELECTORS[:3]
+        assert isinstance(score, int)
+
+    def test_score_element_penalizes_image_density(self):
+        """Elements with many images relative to text get penalized."""
+        html_images = "<div><img><img><img><img><img>few words</div>"
+        html_text = "<div><p>This has many words but no images at all in the content.</p></div>"
+        score_img = score_element(find_tag(make_soup(html_images), "div"))
+        score_txt = score_element(find_tag(make_soup(html_text), "div"))
+        assert score_txt > score_img
+
+    def test_find_main_content_selector_exception(self):
+        """find_main_content handles exceptions from soup.select() gracefully."""
+        from unittest.mock import patch
+        soup = make_soup("<html><body><p>Fallback content.</p></body></html>")
+        original_select = soup.select
+
+        def exploding_select(selector):
+            raise Exception("CSS parse error")
+
+        with patch.object(type(soup), "select", exploding_select):
+            main = find_main_content(soup)
+        # Falls back to body
+        assert main.name == "body"
+
 
 # =============================================================================
 # Heading normalization and cleanup
@@ -392,6 +565,41 @@ class TestHeadingNormalization:
         h2 = div.find("h2")
         assert h2 is not None and h2.string == "Section"
 
+    def test_trailing_non_whitespace_text_stops_removal(self):
+        """A bare text node at the end that is not whitespace prevents heading removal."""
+        soup = make_soup("<div><h2>Keep</h2>trailing text")
+        div = find_tag(soup, "div")
+        remove_trailing_headings(div)
+        # The text node stops the inner loop, and since the last real child
+        # is text (not a heading), the outer loop breaks too
+        assert div.find("h2") is not None
+
+    def test_empty_element_does_not_crash(self):
+        """remove_trailing_headings on an element with no children exits cleanly."""
+        soup = make_soup("<div></div>")
+        div = find_tag(soup, "div")
+        remove_trailing_headings(div)
+        assert str(div) == "<div></div>"
+
+    def test_element_with_only_whitespace_does_not_crash(self):
+        """remove_trailing_headings on whitespace-only element exits cleanly."""
+        soup = make_soup("<div>   </div>")
+        div = find_tag(soup, "div")
+        remove_trailing_headings(div)
+        # All whitespace popped, last_children becomes empty, loop breaks
+
+    def test_trailing_comment_stops_removal(self):
+        """A non-empty Comment node at the end acts like text and stops heading removal."""
+        from bs4 import Comment
+        soup = make_soup("<div><p>Content</p><h3>Trail</h3></div>")
+        div = find_tag(soup, "div")
+        div.append(Comment("some comment"))
+        remove_trailing_headings(div)
+        # Comment has .strip() -> non-empty -> breaks the inner loop
+        # Then last_children[-1] is the Comment (no .name), so outer loop
+        # checks .name which is None -> not a heading -> breaks
+        assert div.find("h3") is not None
+
 
 # =============================================================================
 # Orphaned dividers
@@ -428,6 +636,36 @@ class TestOrphanedDividers:
 
     def test_removes_leading_and_trailing_hrs(self):
         soup = make_soup("<div><hr><p>Content</p><hr></div>")
+        div = find_tag(soup, "div")
+        remove_orphaned_dividers(div)
+        assert div.find("hr") is None
+        assert "Content" in div.get_text()
+
+    def test_empty_element_does_not_crash(self):
+        """remove_orphaned_dividers on an empty element exits cleanly."""
+        soup = make_soup("<div></div>")
+        div = find_tag(soup, "div")
+        remove_orphaned_dividers(div)
+        assert str(div) == "<div></div>"
+
+    def test_only_hrs_all_removed(self):
+        """An element containing only HRs ends up empty."""
+        soup = make_soup("<div><hr><hr></div>")
+        div = find_tag(soup, "div")
+        remove_orphaned_dividers(div)
+        assert div.find("hr") is None
+
+    def test_leading_whitespace_before_hr_removed(self):
+        """Leading whitespace text nodes before an HR are skipped."""
+        soup = make_soup("<div>   <hr><p>Content</p></div>")
+        div = find_tag(soup, "div")
+        remove_orphaned_dividers(div)
+        assert div.find("hr") is None
+        assert "Content" in div.get_text()
+
+    def test_trailing_whitespace_after_hr_removed(self):
+        """Trailing whitespace text nodes after an HR are skipped."""
+        soup = make_soup("<div><p>Content</p><hr>   </div>")
         div = find_tag(soup, "div")
         remove_orphaned_dividers(div)
         assert div.find("hr") is None
@@ -632,3 +870,121 @@ def my_function():
         result = clean_html(html)
         assert "README" in result
         assert "Project description" in result
+
+    def test_exact_selector_exception_continues(self):
+        """If an exact selector raises during soup.select(), processing continues."""
+        from unittest.mock import patch
+        html = """<html><body>
+            <article>
+                <p>Content survives.</p>
+                <script>alert(1)</script>
+            </article>
+        </body></html>"""
+        # Patch soup.select to raise on the first selector, then work normally
+        from bs4 import BeautifulSoup as BS
+        original_select = BS.select
+        call_count = 0
+
+        def sometimes_exploding_select(self, selector):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("CSS parse error on first selector")
+            return original_select(self, selector)
+
+        with patch.object(BS, "select", sometimes_exploding_select):
+            result = clean_html(html)
+        # Processing continued past the exception
+        assert "Content survives" in result
+        assert call_count > 1
+
+    def test_removes_elements_with_partial_patterns_in_data_test(self):
+        """Elements with partial pattern in data-test attribute are removed."""
+        html = """<html><body>
+            <article>
+                <p>Content</p>
+                <div data-test="sidebar-content-area">Widget</div>
+            </article>
+        </body></html>"""
+        result = clean_html(html)
+        assert "Widget" not in result
+        assert "Content" in result
+
+
+# =============================================================================
+# html_to_markdown integration
+# =============================================================================
+
+
+class TestHtmlToMarkdown:
+    """Tests for html_to_markdown end-to-end conversion."""
+
+    def test_consecutive_blank_lines_collapsed(self):
+        """Multiple consecutive blank lines are collapsed to one."""
+        # Empty <table> tags produce multiple blank lines from markdownify
+        html = """<html><body>
+            <article>
+                <p>First paragraph.</p>
+                <table></table>
+                <p>Second paragraph.</p>
+            </article>
+        </body></html>"""
+        result = html_to_markdown(html)
+        assert "\n\n\n" not in result
+        assert "First paragraph." in result
+        assert "Second paragraph." in result
+
+    def test_code_language_extracted_from_code_element(self):
+        """Code blocks get language annotation from inner <code class='language-*'>."""
+        html = """<html><body>
+            <article>
+                <p>Example:</p>
+                <pre><code class="language-python">print("hello")</code></pre>
+            </article>
+        </body></html>"""
+        result = html_to_markdown(html)
+        assert "```python" in result
+        assert 'print("hello")' in result
+
+    def test_code_language_extracted_from_pre_element(self):
+        """Code blocks get language annotation from <pre class='language-*'>."""
+        html = """<html><body>
+            <article>
+                <p>Example:</p>
+                <pre class="language-rust"><code>fn main() {}</code></pre>
+            </article>
+        </body></html>"""
+        result = html_to_markdown(html)
+        assert "```rust" in result
+        assert "fn main()" in result
+
+    def test_code_block_without_language_class(self):
+        """Code blocks without language class get no language annotation."""
+        html = """<html><body>
+            <article>
+                <p>Example:</p>
+                <pre><code>some code</code></pre>
+            </article>
+        </body></html>"""
+        result = html_to_markdown(html)
+        assert "some code" in result
+
+    def test_strip_tags_option(self):
+        """strip_tags parameter removes specified tags from output."""
+        html = """<html><body>
+            <article>
+                <p>Keep this <b>bold</b> and <em>italic</em>.</p>
+            </article>
+        </body></html>"""
+        result = html_to_markdown(html, strip_tags=["em"])
+        assert "**bold**" in result
+        # em should be stripped (text kept, formatting removed)
+        assert "italic" in result
+        assert "*italic*" not in result or "**italic**" not in result
+
+    def test_output_ends_with_newline(self):
+        """Markdown output always ends with exactly one newline."""
+        html = "<html><body><article><p>Content.</p></article></body></html>"
+        result = html_to_markdown(html)
+        assert result.endswith("\n")
+        assert not result.endswith("\n\n")

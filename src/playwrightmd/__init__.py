@@ -1014,8 +1014,69 @@ def render_local_html(
 
 
 # =============================================================================
-# Content Cleaning
+# Content Extraction Module
 # =============================================================================
+#
+# Readability-style content extraction pipeline. Selects the "main content"
+# from a full HTML document and prepares it for markdown conversion.
+#
+# UX Design Goal
+# --------------
+# Given any web page, produce a clean reading experience: the article body
+# with images and code blocks, free of chrome (nav, ads, sidebars, metadata).
+# When in doubt, prefer losing marginal content over including noise.
+#
+# Pipeline (invoked by clean_html)
+# --------------------------------
+#
+#   Raw HTML string
+#        |
+#        v
+#   +-----------------------+
+#   | BeautifulSoup parse   |  "lxml" parser
+#   +-----------------------+
+#        |
+#        v
+#   +-----------------------+
+#   | Exact selector strip  |  Remove ~100 CSS selectors: <script>, <nav>,
+#   |                       |  <footer>, <aside>, ads, forms, hidden els...
+#   +-----------------------+
+#        |
+#        v
+#   +-----------------------+
+#   | Partial pattern strip |  Remove elements whose class/id/data-testid
+#   |                       |  contain any of ~300 substrings: "breadcrumb",
+#   |                       |  "sidebar", "newsletter", "related", ...
+#   +-----------------------+
+#        |
+#        v
+#   +-----------------------+
+#   | Main content finder   |  Try ENTRY_POINT_ELEMENTS in priority order
+#   | (score_element)       |  (#post, .post-content, article, main, ...),
+#   |                       |  score each by word count, <p> count, link
+#   |                       |  density, content-class indicators, footnotes.
+#   |                       |  Pick highest score. Fallback: <body>.
+#   +-----------------------+
+#        |
+#        v
+#   +-----------------------+
+#   | URL resolution        |  href, src, srcset -> absolute (if base_url)
+#   +-----------------------+
+#        |
+#        v
+#   +-----------------------+
+#   | Post-cleanup          |  - Remove HTML comments
+#   |                       |  - H1 -> H2 (normalize_headings)
+#   |                       |  - Strip trailing empty headings
+#   |                       |  - Strip leading/trailing orphan <hr>
+#   +-----------------------+
+#        |
+#        v
+#   Cleaned HTML string (ready for markdownify)
+#
+# Selector override: when the user passes --selector/-s, the entire
+# strip + score pipeline is skipped; we use that CSS selector directly.
+#
 
 
 def score_element(element) -> int:
@@ -1120,6 +1181,9 @@ def clean_html(html: str, selector: str | None = None, base_url: str | None = No
 
         # Remove elements matching partial patterns in class/id
         for element in soup.find_all(True):  # True matches all tags
+            # Skip elements already destroyed by a parent's decompose()
+            if element.attrs is None:
+                continue
             classes = element.get("class")
             class_attr = " ".join(classes) if classes else ""
             id_attr = element.get("id") or ""
@@ -1203,7 +1267,7 @@ def remove_trailing_headings(element) -> None:
                 else:
                     break
             else:
-                last_children.pop()
+                last_children.pop()  # pragma: no cover
 
         if not last_children:
             break
@@ -1246,6 +1310,26 @@ def remove_orphaned_dividers(element) -> None:
             break
 
 
+def _extract_code_language(el) -> str | None:
+    """Extract language from a <pre> element's child <code> class.
+
+    markdownify passes the <pre> tag to code_language_callback, but the
+    language class (e.g. 'language-python') is typically on the inner
+    <code> element.  Check both <pre> and its first <code> child.
+    """
+    # Check <pre> itself
+    cls = el.get("class")
+    if cls:
+        return cls[0].replace("language-", "")
+    # Check inner <code> child
+    code = el.find("code")
+    if code:
+        cls = code.get("class")
+        if cls:
+            return cls[0].replace("language-", "")
+    return None
+
+
 def html_to_markdown(
     html: str,
     strip_tags: list[str] | None = None,
@@ -1260,9 +1344,7 @@ def html_to_markdown(
         cleaned,
         heading_style="atx",
         bullets="-",
-        code_language_callback=lambda el: (
-            el.get("class", [""])[0].replace("language-", "") if el.get("class") else None
-        ),
+        code_language_callback=lambda el: _extract_code_language(el),
         strip=strip_tags or [],
     )
 

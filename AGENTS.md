@@ -62,11 +62,13 @@ playwrightmd/
 | Function | Purpose |
 |----------|---------|
 | `main()` | CLI entry, orchestrates pipeline |
-| `create_parser()` | CLI argument definitions |
 | `detect_input_type()` | URL/file/stdin detection |
 | `get_html_content()` | Routes to fetchers (returns content, is_markdown) |
 | `fetch_with_playwright()` | JS-rendered fetcher |
 | `clean_html()` | Content extraction heuristics |
+| `score_element()` | Score DOM element for content likelihood |
+| `find_main_content()` | Find best content container via selectors + scoring |
+| `_extract_code_language()` | Extract code language from `<pre>`/`<code>` class |
 | `html_to_markdown()` | Markdown conversion |
 | `truncate_markdown_links()` | URL truncation |
 | `write_output()` | File/stdout output |
@@ -103,6 +105,17 @@ The tool uses HTTP prefetch with `Accept: text/markdown, text/html` header befor
 - If `X-Markdown-Tokens` header is present → logged to stderr for token budget estimation
 
 **Benefits:** ~80% token reduction and near-instant response when Cloudflare Markdown is available (no browser launch overhead).
+
+---
+
+## Documentation Index
+
+| Document | Location | Description |
+|----------|----------|-------------|
+| Module doc | `src/playwrightmd/__init__.py` line ~1016 | Content extraction pipeline ASCII flowchart, UX design goal |
+| BDD scenarios | `tests/test_readability.py` docstring | 16 Given/When/Then scenarios for all extraction behaviors |
+| Test coverage | `tests/test_readability.py` | 84 tests, 100% coverage for content extraction module |
+| Changelog | `CHANGELOG.md` | Version history and release notes |
 
 ---
 

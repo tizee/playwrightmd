@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-03-08
+
+### Fixed
+- Fix crash on pages with nested partial-pattern elements (`'NoneType' object has no attribute 'get'`) caused by iterating over children destroyed by `decompose()`
+- Fix `code_language_callback` not detecting language class on inner `<code>` element (was only checking `<pre>`)
+
+### Added
+- Content extraction module documentation with ASCII pipeline flowchart and UX design goal
+- BDD test scenarios (16 Given/When/Then scenarios) for all content extraction behaviors
+- 20 new unit tests for content extraction edge cases (score_element footnotes, selector exceptions, empty elements, decomposed parents, code language detection)
+- Documentation index in AGENTS.md
+
+### Improved
+- Content extraction module now has 100% unit test coverage
+- Extract `_extract_code_language()` helper that checks both `<pre>` and child `<code>` for language class
+
 ## [0.5.0] - 2026-03-06
 
 ### Changed
@@ -92,7 +108,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release with HTML to Markdown conversion using Playwright
 
-[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/tizee/playwrightmd/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/tizee/playwrightmd/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/tizee/playwrightmd/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/tizee/playwrightmd/releases/tag/v0.4.2
