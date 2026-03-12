@@ -7,6 +7,7 @@ from playwrightmd import (
     InputType,
     is_text_file,
     get_html_content,
+    http_prefetch,
     is_markdown_file,
     is_text_content_type,
     is_markdown_content_type,
@@ -387,3 +388,100 @@ class TestHTTPPrefetchFallback:
                 InputType.URL,
                 no_js=True,
             )
+
+
+class TestBinaryContentRejection:
+    """Fetching a URL that returns binary content (PDF, images, etc.) should
+    fail gracefully with a clear error instead of crashing with UnicodeDecodeError."""
+
+    @patch("urllib.request.urlopen")
+    def test_pdf_content_type_raises_value_error(self, mock_urlopen):
+        """http_prefetch rejects application/pdf with a descriptive ValueError."""
+        mock_response = MagicMock()
+        mock_response.getheader.side_effect = lambda h: {
+            "Content-Type": "application/pdf",
+        }.get(h)
+        mock_response.read.return_value = b"%PDF-1.4 binary garbage \xbf\x00"
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        with pytest.raises(ValueError, match="binary.*application/pdf"):
+            http_prefetch("https://arxiv.org/pdf/2603.02473v1")
+
+    @patch("urllib.request.urlopen")
+    def test_image_content_type_raises_value_error(self, mock_urlopen):
+        """http_prefetch rejects image/png with a descriptive ValueError."""
+        mock_response = MagicMock()
+        mock_response.getheader.side_effect = lambda h: {
+            "Content-Type": "image/png",
+        }.get(h)
+        mock_response.read.return_value = b"\x89PNG\r\n\x1a\n\x00\x00"
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        with pytest.raises(ValueError, match="binary.*image/png"):
+            http_prefetch("https://example.com/photo.png")
+
+    @patch("urllib.request.urlopen")
+    def test_octet_stream_raises_value_error(self, mock_urlopen):
+        """http_prefetch rejects application/octet-stream."""
+        mock_response = MagicMock()
+        mock_response.getheader.side_effect = lambda h: {
+            "Content-Type": "application/octet-stream",
+        }.get(h)
+        mock_response.read.return_value = b"\x00\x01\x02\x03"
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        with pytest.raises(ValueError, match="binary.*application/octet-stream"):
+            http_prefetch("https://example.com/file.bin")
+
+    @patch("urllib.request.urlopen")
+    def test_binary_url_gives_graceful_exit_code(self, mock_urlopen, capsys):
+        """main() returns exit code 1 with descriptive error for binary URLs."""
+        from playwrightmd import main
+
+        mock_response = MagicMock()
+        mock_response.getheader.side_effect = lambda h: {
+            "Content-Type": "application/pdf",
+        }.get(h)
+        mock_response.read.return_value = b"%PDF-1.4 \xbf"
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = main(
+            ["https://arxiv.org/pdf/2603.02473v1", "--no-js"],
+            standalone_mode=False,
+        )
+        assert result == 1
+        captured = capsys.readouterr()
+        # Error message should mention binary content, not show raw UnicodeDecodeError
+        assert "binary" in captured.err.lower()
+        assert "application/pdf" in captured.err
+
+    @patch("urllib.request.urlopen")
+    def test_text_html_still_works(self, mock_urlopen):
+        """text/html content type should still be fetched normally (not rejected)."""
+        mock_response = MagicMock()
+        mock_response.getheader.side_effect = lambda h: {
+            "Content-Type": "text/html; charset=utf-8",
+        }.get(h)
+        mock_response.read.return_value = b"<html><body>Hello</body></html>"
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        content, content_type = http_prefetch("https://example.com")
+        assert "<html>" in content
+        assert content_type == "text/html; charset=utf-8"
+
+    @patch("urllib.request.urlopen")
+    def test_no_content_type_still_works(self, mock_urlopen):
+        """Missing Content-Type header should still attempt decode (backward compat)."""
+        mock_response = MagicMock()
+        mock_response.getheader.return_value = None
+        mock_response.read.return_value = b"<html><body>Hello</body></html>"
+        mock_urlopen.return_value.__enter__ = MagicMock(return_value=mock_response)
+        mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+
+        content, content_type = http_prefetch("https://example.com")
+        assert "<html>" in content

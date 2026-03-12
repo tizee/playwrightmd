@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-03-13
+
+### Fixed
+- Fix crash on binary URLs (e.g., PDF) with `UnicodeDecodeError` — now detects non-text Content-Type and exits gracefully with a descriptive error message
+
+### Added
+- `is_binary_content_type()` helper to reject binary responses before decoding
+- 6 new tests for binary content rejection (PDF, image, octet-stream, main() exit code, backward compat)
+
 ## [0.5.1] - 2026-03-08
 
 ### Fixed

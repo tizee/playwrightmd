@@ -1451,6 +1451,19 @@ def is_text_content_type(content_type: str | None) -> bool:
     return "text/plain" in content_type.lower()
 
 
+def is_binary_content_type(content_type: str | None) -> bool:
+    """Check if Content-Type header indicates binary (non-text) content."""
+    if not content_type:
+        return False
+    ct = content_type.lower().split(";")[0].strip()
+    # text/* and application/json, application/xml are decodable
+    if ct.startswith("text/"):
+        return False
+    if ct in ("application/json", "application/xml", "application/xhtml+xml"):
+        return False
+    return True
+
+
 def http_prefetch(
     url: str,
     timeout: int = 30000,
@@ -1460,6 +1473,7 @@ def http_prefetch(
 
     Returns (content, content_type). Logs markdown token count to stderr
     when the X-Markdown-Tokens header is present.
+    Raises ValueError for binary (non-text) content types.
     """
     headers = {
         "User-Agent": user_agent or DEFAULT_USER_AGENT,
@@ -1468,6 +1482,14 @@ def http_prefetch(
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout // 1000) as response:
         content_type = response.getheader("Content-Type")
+
+        if is_binary_content_type(content_type):
+            ct_display = content_type.split(";")[0].strip() if content_type else content_type
+            raise ValueError(
+                f"URL points to binary content ({ct_display}), not a web page. "
+                "playwrightmd only handles text-based content (HTML, Markdown, plain text)."
+            )
+
         content = response.read().decode("utf-8")
 
         if is_markdown_content_type(content_type):
