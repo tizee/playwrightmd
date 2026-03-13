@@ -9,7 +9,9 @@ Convert HTML to Markdown using Playwright. Handles JavaScript-rendered content, 
 - **HTTP prefetch with Playwright fallback**: Lightweight HTTP fetch first, Playwright only when JS rendering is needed
 - **JavaScript rendering**: Uses Playwright to render SPAs and dynamic content
 - **Bot detection bypass**: Handles Cloudflare and similar protections
+- **YAML frontmatter**: Automatically extracts page metadata (title, author, published date, description) from Open Graph, JSON-LD, and meta tags — prepended as YAML frontmatter for structured agent consumption
 - **Smart content extraction**: Advanced readability rules — removes sidebars, navigation, ads, metadata, and boilerplate using 600+ patterns
+- **Auto-retry for SPA content**: Detects empty content from client-side rendered pages (Next.js, React) and automatically retries with `networkidle` wait strategy
 - **Absolute URL resolution**: Converts relative links to absolute URLs in markdown output
 - **Multiple input modes**: URL, local file, or stdin
 - **CSS selector support**: Target specific content areas
@@ -119,6 +121,7 @@ Arguments:
 Output:
   -o, --output FILE       Output file (alternative to positional argument)
   --raw                   Output raw HTML without Markdown conversion
+  --no-frontmatter        Suppress YAML frontmatter in markdown output
   --truncate-link [N]     Truncate URLs longer than N display width
                           (default: 42 when flag is used)
 
@@ -254,9 +257,11 @@ curl -s https://react-app.com -o static.html
 1. **Input detection**: Determines if input is URL, file, or stdin
 2. **Markdown detection**: Automatically identifies if input is already a markdown file/URL
 3. **HTTP prefetch** (URLs only): Lightweight fetch with `Accept: text/markdown, text/html` header. If the server returns markdown (e.g., Cloudflare Markdown for Agents), use it directly — no browser launched
-4. **Playwright fallback** (URLs only): If prefetch returns HTML and JS rendering is needed, launches headless Chromium with anti-detection measures
+4. **Playwright fallback** (URLs only): If prefetch returns HTML and JS rendering is needed, launches headless Chromium with anti-detection measures. Auto-retries with `networkidle` if content is empty
 5. **Content extraction**: Removes scripts, styles, navigation, sidebars (for HTML only)
 6. **Markdown conversion**: Uses markdownify with clean formatting (for HTML only)
+7. **Metadata extraction**: Extracts title, author, published date, etc. from Open Graph, JSON-LD, and meta tags
+8. **Frontmatter**: Prepends YAML frontmatter with extracted metadata (for URL inputs)
 
 ### Markdown Detection
 
@@ -324,6 +329,66 @@ playwrightmd https://x.com/elonmusk/article/1234567890
 - Bypasses rate limiting and anti-scraping
 - Works for both tweets and long-form articles
 - Preserves formatting (italic, mentions, links)
+
+### YAML Frontmatter
+
+playwrightmd automatically extracts page metadata and prepends it as YAML frontmatter to the markdown output:
+
+```yaml
+---
+title: "Can LLMs Be Computers?"
+author: "Christos Tzamos"
+published: "2026-03-11T00:00:00.000Z"
+description: "We build a computer inside a transformer."
+site: "Percepta"
+source: "https://percepta.ai/blog/can-llms-be-computers"
+image: "https://percepta.ai/blog/turing-hero-og.png"
+---
+
+## TL;DR
+...
+```
+
+**Metadata sources** (priority order per field):
+
+| Field | Sources (first non-empty wins) |
+|-------|-------------------------------|
+| title | `og:title` > `<title>` > JSON-LD `headline` > `twitter:title` |
+| author | `article:author` > `meta[name=author]` > JSON-LD `author` |
+| published | `article:published_time` > JSON-LD `datePublished` |
+| description | `og:description` > `meta[name=description]` > JSON-LD > `twitter:description` |
+| site | `og:site_name` > JSON-LD `publisher` |
+| image | `og:image` |
+| source | Always set from the input URL |
+
+**Behavior:**
+- Frontmatter is added for all URL-fetched HTML pages by default
+- Only fields with values are included (no empty fields)
+- Twitter/X posts already include frontmatter via FxTwitter API
+- Cloudflare Markdown responses are passed through as-is (no frontmatter added)
+- Use `--no-frontmatter` to suppress frontmatter output:
+
+```bash
+playwrightmd https://example.com --no-frontmatter
+```
+
+### Auto-retry for SPA/Next.js Pages
+
+When Playwright fetches a page with `domcontentloaded` (the default) and the resulting markdown is empty, playwrightmd automatically retries with `networkidle`. This handles client-side rendered pages (Next.js, React, Vue) where content is injected by JavaScript hydration after the initial HTML loads.
+
+```
+domcontentloaded (fast) → empty? → retry with networkidle (thorough)
+```
+
+A hint is logged to stderr when retry occurs:
+
+```
+Content empty after domcontentloaded, retrying with networkidle…
+```
+
+This only triggers when:
+- The default `domcontentloaded` strategy is used (not overridden by `--wait-until`)
+- The extracted markdown content is empty or whitespace-only
 
 ### Navigation lifecycle (`--wait-until`)
 

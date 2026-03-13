@@ -1,5 +1,5 @@
 from urllib.error import HTTPError
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -305,6 +305,24 @@ class TestHTTPPrefetchFallback:
     fall back to Playwright instead of propagating the error.
     """
 
+    # Realistic HTML with enough body text (>200 chars) to avoid triggering
+    # the empty-content auto-retry with networkidle.
+    _RENDERED_HTML = (
+        "<html><body><h1>Rendered</h1>"
+        "<p>" + "This is a paragraph with meaningful content. " * 8 + "</p>"
+        "</body></html>"
+    )
+    _WORKS_HTML = (
+        "<html><body><h1>Works</h1>"
+        "<p>" + "The server returned content successfully. " * 8 + "</p>"
+        "</body></html>"
+    )
+    _FALLBACK_HTML = (
+        "<html><body><h1>Fallback</h1>"
+        "<p>" + "Content loaded via Playwright fallback. " * 8 + "</p>"
+        "</body></html>"
+    )
+
     @patch("playwrightmd.fetch_with_playwright")
     @patch("urllib.request.urlopen")
     def test_http_403_falls_back_to_playwright(self, mock_urlopen, mock_playwright):
@@ -319,7 +337,7 @@ class TestHTTPPrefetchFallback:
         )
 
         # Playwright fallback returns rendered HTML
-        mock_playwright.return_value = "<html><body><h1>Rendered</h1></body></html>"
+        mock_playwright.return_value = self._RENDERED_HTML
 
         content, is_markdown, base_url = get_html_content(
             "https://example.com/page",
@@ -343,7 +361,7 @@ class TestHTTPPrefetchFallback:
             fp=None,
         )
 
-        mock_playwright.return_value = "<html><body><h1>Works</h1></body></html>"
+        mock_playwright.return_value = self._WORKS_HTML
 
         content, is_markdown, base_url = get_html_content(
             "https://example.com/page",
@@ -361,7 +379,7 @@ class TestHTTPPrefetchFallback:
 
         mock_urlopen.side_effect = URLError("Connection refused")
 
-        mock_playwright.return_value = "<html><body><h1>Fallback</h1></body></html>"
+        mock_playwright.return_value = self._FALLBACK_HTML
 
         content, is_markdown, base_url = get_html_content(
             "https://example.com/page",
@@ -485,3 +503,150 @@ class TestBinaryContentRejection:
 
         content, content_type = http_prefetch("https://example.com")
         assert "<html>" in content
+
+
+# Minimal Next.js SSG page: article shell is present but body is empty.
+# This simulates what percepta.ai (and many Next.js sites) return before
+# React hydration injects the actual blog content.
+EMPTY_NEXTJS_HTML = """<!DOCTYPE html><html lang="en"><head>
+<title>Blog Post | Site</title></head><body>
+<div id="__next"><main class="blog-post-content">
+<header><h1>Blog Post Title</h1></header>
+<article class="prose-wrapper overflow-visible"></article>
+</main></div>
+<script id="__NEXT_DATA__" type="application/json">{"props":{}}</script>
+</body></html>"""
+
+# The same page after React hydration — article has real content.
+HYDRATED_NEXTJS_HTML = """<!DOCTYPE html><html lang="en"><head>
+<title>Blog Post | Site</title></head><body>
+<div id="__next"><main class="blog-post-content">
+<header><h1>Blog Post Title</h1></header>
+<article class="prose-wrapper overflow-visible">
+<p>Language models can solve tough math problems but struggle on simple
+computational tasks that involve reasoning over many steps.</p>
+<h2>Motivation</h2>
+<p>State-of-the-art language models can solve impressively hard mathematics.</p>
+</article>
+</main></div></body></html>"""
+
+
+class TestEmptyContentAutoRetry:
+    """When Playwright returns HTML with no extractable content (e.g. Next.js
+    SSG pages where React hasn't hydrated yet), get_html_content should
+    automatically retry with wait_until=networkidle."""
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_retries_with_networkidle_when_content_empty(
+        self, mock_prefetch, mock_playwright
+    ):
+        """Empty article on domcontentloaded should trigger a networkidle retry."""
+        mock_prefetch.return_value = (EMPTY_NEXTJS_HTML, "text/html; charset=utf-8")
+        # First call (domcontentloaded) returns empty, second (networkidle) returns content
+        mock_playwright.side_effect = [EMPTY_NEXTJS_HTML, HYDRATED_NEXTJS_HTML]
+
+        content, is_markdown, base_url = get_html_content(
+            "https://example.com/blog/post",
+            InputType.URL,
+        )
+
+        assert mock_playwright.call_count == 2
+        # Second call should use networkidle
+        second_call = mock_playwright.call_args_list[1]
+        assert second_call.kwargs.get("wait_until") == "networkidle"
+        # Returned content should be the hydrated version
+        assert "Language models" in content
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_no_retry_when_content_present(self, mock_prefetch, mock_playwright):
+        """If domcontentloaded returns content, no retry needed."""
+        mock_prefetch.return_value = (HYDRATED_NEXTJS_HTML, "text/html; charset=utf-8")
+        mock_playwright.return_value = HYDRATED_NEXTJS_HTML
+
+        content, is_markdown, base_url = get_html_content(
+            "https://example.com/blog/post",
+            InputType.URL,
+        )
+
+        mock_playwright.assert_called_once()
+        assert "Language models" in content
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_no_retry_when_user_set_networkidle(self, mock_prefetch, mock_playwright):
+        """If user explicitly chose networkidle, don't retry (already using it)."""
+        mock_prefetch.return_value = (EMPTY_NEXTJS_HTML, "text/html; charset=utf-8")
+        mock_playwright.return_value = EMPTY_NEXTJS_HTML
+
+        content, is_markdown, base_url = get_html_content(
+            "https://example.com/blog/post",
+            InputType.URL,
+            wait_until="networkidle",
+        )
+
+        mock_playwright.assert_called_once()
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_no_retry_when_user_set_load(self, mock_prefetch, mock_playwright):
+        """If user explicitly chose 'load', don't second-guess their choice."""
+        mock_prefetch.return_value = (EMPTY_NEXTJS_HTML, "text/html; charset=utf-8")
+        mock_playwright.return_value = EMPTY_NEXTJS_HTML
+
+        content, is_markdown, base_url = get_html_content(
+            "https://example.com/blog/post",
+            InputType.URL,
+            wait_until="load",
+        )
+
+        mock_playwright.assert_called_once()
+
+    @patch("playwrightmd.http_prefetch")
+    def test_no_retry_in_no_js_mode(self, mock_prefetch):
+        """--no-js skips Playwright entirely, so no retry should happen."""
+        mock_prefetch.return_value = (EMPTY_NEXTJS_HTML, "text/html; charset=utf-8")
+
+        content, is_markdown, base_url = get_html_content(
+            "https://example.com/blog/post",
+            InputType.URL,
+            no_js=True,
+        )
+
+        # Should return the prefetch content as-is, no Playwright involved
+        assert content == EMPTY_NEXTJS_HTML
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_retry_emits_stderr_hint(self, mock_prefetch, mock_playwright, capsys):
+        """Retry should log a hint to stderr so users know what happened."""
+        mock_prefetch.return_value = (EMPTY_NEXTJS_HTML, "text/html; charset=utf-8")
+        mock_playwright.side_effect = [EMPTY_NEXTJS_HTML, HYDRATED_NEXTJS_HTML]
+
+        get_html_content(
+            "https://example.com/blog/post",
+            InputType.URL,
+        )
+
+        captured = capsys.readouterr()
+        assert "networkidle" in captured.err.lower() or "retry" in captured.err.lower()
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_retry_preserves_other_params(self, mock_prefetch, mock_playwright):
+        """Retry call should preserve timeout, wait_for, user_agent, etc."""
+        mock_prefetch.return_value = (EMPTY_NEXTJS_HTML, "text/html; charset=utf-8")
+        mock_playwright.side_effect = [EMPTY_NEXTJS_HTML, HYDRATED_NEXTJS_HTML]
+
+        get_html_content(
+            "https://example.com/blog/post",
+            InputType.URL,
+            timeout=60000,
+            user_agent="CustomAgent/1.0",
+        )
+
+        second_call = mock_playwright.call_args_list[1]
+        assert second_call.kwargs.get("timeout") == 60000
+        assert second_call.kwargs.get("user_agent") == "CustomAgent/1.0"
+        assert second_call.kwargs.get("wait_until") == "networkidle"

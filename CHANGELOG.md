@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-13
+
+### Added
+- **YAML frontmatter**: Automatically extract page metadata (title, author, published date, description, site, image) from Open Graph, JSON-LD, and meta tags — prepended as YAML frontmatter to markdown output for all URL-fetched HTML pages
+- `PageMetadata` dataclass and `extract_metadata()` / `format_frontmatter()` shared helpers
+- `--no-frontmatter` CLI flag to suppress frontmatter output
+- **Auto-retry for SPA pages**: When Playwright returns empty content with `domcontentloaded`, automatically retry with `networkidle` — fixes blank output on Next.js and other client-side rendered sites
+- `_is_content_empty()` helper using the full `html_to_markdown` pipeline to detect empty pages
+- 26 new tests for metadata extraction, frontmatter formatting, and pipeline integration (`test_frontmatter.py`)
+- 7 new tests for empty-content auto-retry (`test_markdown_detection.py::TestEmptyContentAutoRetry`)
+
+### Changed
+- `fxtwitter_to_markdown()` refactored to use shared `format_frontmatter()` instead of hand-built YAML — unified frontmatter format across all page types
+- Twitter author field changed from separate `author`/`author_name` to unified `author: "Name (@handle)"`
+
 ## [0.5.2] - 2026-03-13
 
 ### Fixed
@@ -117,7 +132,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release with HTML to Markdown conversion using Playwright
 
-[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/tizee/playwrightmd/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/tizee/playwrightmd/compare/v0.5.2...v0.6.0
+[0.5.2]: https://github.com/tizee/playwrightmd/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/tizee/playwrightmd/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/tizee/playwrightmd/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/tizee/playwrightmd/compare/v0.4.2...v0.4.3

@@ -529,6 +529,151 @@ FOOTNOTE_LIST_SELECTORS = [
 
 
 # =============================================================================
+# Page Metadata & Frontmatter
+# =============================================================================
+
+
+@dataclass
+class PageMetadata:
+    """Structured metadata extracted from a web page."""
+
+    title: str | None = None
+    author: str | None = None
+    published: str | None = None
+    description: str | None = None
+    source: str | None = None
+    site: str | None = None
+    image: str | None = None
+
+
+# Article-like JSON-LD types whose metadata we extract
+_JSONLD_ARTICLE_TYPES = frozenset(
+    {"Article", "BlogPosting", "NewsArticle", "TechArticle", "ScholarlyArticle", "Report"}
+)
+
+
+def extract_metadata(html: str, url: str) -> PageMetadata:
+    """Extract page metadata from HTML <head> tags.
+
+    Priority per field (first non-empty wins):
+      title:       og:title > <title> > JSON-LD headline > twitter:title
+      author:      article:author > meta[name=author] > JSON-LD author
+      published:   article:published_time > JSON-LD datePublished
+      description: og:description > meta[name=description] > JSON-LD > twitter:description
+      site:        og:site_name > JSON-LD publisher
+      image:       og:image
+    """
+    soup = BeautifulSoup(html, "lxml")
+
+    def og(prop: str) -> str | None:
+        tag = soup.find("meta", property=prop)
+        return tag["content"].strip() if tag and tag.get("content") else None
+
+    def meta_name(name: str) -> str | None:
+        tag = soup.find("meta", attrs={"name": name})
+        return tag["content"].strip() if tag and tag.get("content") else None
+
+    def html_title() -> str | None:
+        tag = soup.find("title")
+        return tag.get_text(strip=True) if tag else None
+
+    # Parse JSON-LD for article types
+    jsonld_title = None
+    jsonld_author = None
+    jsonld_published = None
+    jsonld_description = None
+    jsonld_publisher = None
+
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            ld_type = item.get("@type", "")
+            if ld_type not in _JSONLD_ARTICLE_TYPES:
+                continue
+
+            jsonld_title = jsonld_title or item.get("headline")
+            jsonld_description = jsonld_description or item.get("description")
+            jsonld_published = jsonld_published or item.get("datePublished")
+
+            # Author: string, object, or array
+            raw_author = item.get("author")
+            if raw_author and not jsonld_author:
+                if isinstance(raw_author, str):
+                    jsonld_author = raw_author
+                elif isinstance(raw_author, dict):
+                    jsonld_author = raw_author.get("name")
+                elif isinstance(raw_author, list):
+                    names = []
+                    for a in raw_author:
+                        if isinstance(a, str):
+                            names.append(a)
+                        elif isinstance(a, dict) and a.get("name"):
+                            names.append(a["name"])
+                    jsonld_author = ", ".join(names) if names else None
+
+            # Publisher
+            raw_pub = item.get("publisher")
+            if raw_pub and not jsonld_publisher:
+                if isinstance(raw_pub, str):
+                    jsonld_publisher = raw_pub
+                elif isinstance(raw_pub, dict):
+                    jsonld_publisher = raw_pub.get("name")
+
+    return PageMetadata(
+        title=og("og:title") or html_title() or jsonld_title or meta_name("twitter:title"),
+        author=og("article:author") or meta_name("author") or jsonld_author,
+        published=og("article:published_time") or jsonld_published,
+        description=(
+            og("og:description")
+            or meta_name("description")
+            or jsonld_description
+            or meta_name("twitter:description")
+        ),
+        source=url,
+        site=og("og:site_name") or jsonld_publisher,
+        image=og("og:image"),
+    )
+
+
+# Frontmatter field order
+_FRONTMATTER_FIELDS = ["title", "author", "published", "description", "site", "source", "image"]
+
+
+def format_frontmatter(meta: PageMetadata) -> str:
+    """Render PageMetadata as a YAML frontmatter block.
+
+    Returns empty string if no meaningful fields are present
+    (source-only is not considered meaningful).
+    """
+    pairs = []
+    for field in _FRONTMATTER_FIELDS:
+        value = getattr(meta, field)
+        if value is not None:
+            pairs.append((field, value))
+
+    # Don't emit frontmatter if only source is present (or nothing)
+    meaningful = [k for k, _ in pairs if k != "source"]
+    if not meaningful:
+        return ""
+
+    lines = ["---"]
+    for key, value in pairs:
+        escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'{key}: "{escaped}"')
+    lines.append("---")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+# =============================================================================
 # FxTwitter API Integration
 # =============================================================================
 
@@ -816,20 +961,17 @@ def render_atomic_block(block: dict, entity_map: list) -> str:
 
 def fxtwitter_to_markdown(tweet: FxTwitterTweet, source_url: str) -> str:
     """Convert FxTwitter tweet/article to markdown."""
-    lines = []
+    meta = PageMetadata(
+        title=tweet.article_title or f"Post by @{tweet.author_handle}",
+        author=f"{tweet.author_name} (@{tweet.author_handle})",
+        source=source_url,
+        site="X (Twitter)",
+    )
+    frontmatter = format_frontmatter(meta)
 
-    # Frontmatter
-    lines.append("---")
-    if tweet.article_title:
-        lines.append(f'title: "{tweet.article_title}"')
-    else:
-        lines.append(f'title: "Post by @{tweet.author_handle}"')
-    lines.append(f'author: "@{tweet.author_handle}"')
-    lines.append(f'author_name: "{tweet.author_name}"')
-    lines.append(f'source: "{source_url}"')
-    lines.append('site: "X (Twitter)"')
-    lines.append("---")
-    lines.append("")
+    lines = []
+    if frontmatter:
+        lines.append(frontmatter)
 
     # Article content or tweet text
     if tweet.article_content:
@@ -1500,6 +1642,21 @@ def http_prefetch(
         return content, content_type
 
 
+def _is_content_empty(html: str) -> bool:
+    """Check if HTML produces no meaningful markdown after content extraction.
+
+    Runs the same clean_html + markdownify pipeline used for final output.
+    Returns True when the result is empty or whitespace-only — this reliably
+    detects SPA/Next.js pages where the page shell (nav/footer) is present
+    but the main content area hasn't been hydrated yet.
+    """
+    try:
+        md = html_to_markdown(html)
+        return len(md.strip()) == 0
+    except Exception:
+        return True
+
+
 def get_html_content(
     input_arg: str | None,
     input_type: InputType,
@@ -1552,19 +1709,27 @@ def get_html_content(
                 raise
 
         # Fall back to Playwright for JS-rendered content
-        return (
-            fetch_with_playwright(
-                url,
-                timeout=timeout,
-                wait_for=wait_for,
-                user_agent=user_agent,
-                proxy_url=proxy_url,
-                headless=headless,
-                wait_until=wait_until,
-            ),
-            False,
-            url,
+        playwright_kwargs = dict(
+            timeout=timeout,
+            wait_for=wait_for,
+            user_agent=user_agent,
+            proxy_url=proxy_url,
+            headless=headless,
+            wait_until=wait_until,
         )
+        html = fetch_with_playwright(url, **playwright_kwargs)
+
+        # Auto-retry with networkidle for SPA/Next.js pages that need hydration.
+        # Only retry when using the default wait_until (domcontentloaded) — if the
+        # user explicitly chose a strategy, respect their choice.
+        if wait_until == "domcontentloaded" and _is_content_empty(html):
+            click.echo(
+                "Content empty after domcontentloaded, retrying with networkidle…",
+                err=True,
+            )
+            html = fetch_with_playwright(url, **{**playwright_kwargs, "wait_until": "networkidle"})
+
+        return (html, False, url)
 
     if input_type == InputType.FILE:
         assert input_arg is not None
@@ -1648,6 +1813,9 @@ def validate_truncate_link(
 @click.option("--ignore-robots-txt", is_flag=True, help="Ignore robots.txt restrictions")
 @click.option("--raw", is_flag=True, help="Output raw HTML without converting to Markdown")
 @click.option(
+    "--no-frontmatter", is_flag=True, help="Suppress YAML frontmatter in markdown output"
+)
+@click.option(
     "--truncate-link",
     type=int,
     default=None,
@@ -1671,6 +1839,7 @@ def main(
     wait_until: str,
     ignore_robots_txt: bool,
     raw: bool,
+    no_frontmatter: bool,
     truncate_link: int | None,
     show_version: bool,
 ) -> int:
@@ -1713,10 +1882,17 @@ def main(
         if raw:
             out_content = content
         elif is_markdown:
-            # Skip conversion, output raw markdown
+            # Skip conversion, output raw markdown (Twitter/Cloudflare already formatted)
             out_content = content
         else:
             out_content = html_to_markdown(content, selector=selector, base_url=base_url)
+
+            # Prepend YAML frontmatter with page metadata
+            if not no_frontmatter and input_type == InputType.URL and input:
+                url = input if input.startswith(("http://", "https://")) else "https://" + input
+                frontmatter = format_frontmatter(extract_metadata(content, url))
+                if frontmatter:
+                    out_content = frontmatter + "\n" + out_content
 
         # Apply link truncation if requested
         if truncate_link is not None:

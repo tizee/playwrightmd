@@ -48,7 +48,7 @@ playwrightmd/
 ```
 
 **Pipeline:**
-`detect_input_type()` → `get_html_content()` → `clean_html()` → `html_to_markdown()` → `write_output()`
+`detect_input_type()` → `get_html_content()` → `clean_html()` → `html_to_markdown()` → `extract_metadata()` + `format_frontmatter()` → `write_output()`
 
 **Fetching strategy (for URLs):**
 `get_html_content()` uses a two-tier approach:
@@ -63,8 +63,11 @@ playwrightmd/
 |----------|---------|
 | `main()` | CLI entry, orchestrates pipeline |
 | `detect_input_type()` | URL/file/stdin detection |
-| `get_html_content()` | Routes to fetchers (returns content, is_markdown) |
+| `get_html_content()` | Routes to fetchers (returns content, is_markdown); auto-retries with networkidle on empty content |
 | `fetch_with_playwright()` | JS-rendered fetcher |
+| `_is_content_empty()` | Detect empty/SPA pages by running html_to_markdown and checking result |
+| `extract_metadata()` | Extract title/author/published/etc. from OG, JSON-LD, meta tags |
+| `format_frontmatter()` | Render PageMetadata as YAML frontmatter block |
 | `clean_html()` | Content extraction heuristics |
 | `score_element()` | Score DOM element for content likelihood |
 | `find_main_content()` | Find best content container via selectors + scoring |
@@ -115,6 +118,8 @@ The tool uses HTTP prefetch with `Accept: text/markdown, text/html` header befor
 | Module doc | `src/playwrightmd/__init__.py` line ~1016 | Content extraction pipeline ASCII flowchart, UX design goal |
 | BDD scenarios | `tests/test_readability.py` docstring | 16 Given/When/Then scenarios for all extraction behaviors |
 | Test coverage | `tests/test_readability.py` | 84 tests, 100% coverage for content extraction module |
+| Frontmatter tests | `tests/test_frontmatter.py` | 26 tests for metadata extraction, formatting, pipeline integration |
+| Auto-retry tests | `tests/test_markdown_detection.py::TestEmptyContentAutoRetry` | 7 tests for SPA empty-content retry |
 | Changelog | `CHANGELOG.md` | Version history and release notes |
 
 ---
