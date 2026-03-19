@@ -704,7 +704,7 @@ def extract_tweet_id(url: str) -> str | None:
 
 def extract_username(url: str) -> str | None:
     """Extract username from x.com/twitter.com URL."""
-    match = re.search(r"/([a-zA-Z][a-zA-Z0-9_]{0,14})/(status|article)/", url)
+    match = re.search(r"/([a-zA-Z0-9_]{1,15})/(status|article)/", url)
     return match.group(1) if match else None
 
 
