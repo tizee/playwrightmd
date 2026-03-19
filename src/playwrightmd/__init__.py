@@ -803,9 +803,15 @@ def apply_facets(text: str, facets: list[dict]) -> str:
             markers.append((indices[0], "open", f'<a href="{url}">'))
             markers.append((indices[1], "close", "</a>"))
         elif f_type == "url" and facet.get("original"):
-            url = facet["original"]
-            markers.append((indices[0], "open", f'<a href="{url}">'))
-            markers.append((indices[1], "close", "</a>"))
+            url = facet.get("replacement") or facet["original"]
+            if facet.get("replacement"):
+                # Replace t.co short link text with full URL
+                link_html = f'<a href="{url}">{escape_html(url)}</a>'
+                markers.append((indices[0], "replace_open", link_html))
+                markers.append((indices[1], "replace_close", ""))
+            else:
+                markers.append((indices[0], "open", f'<a href="{url}">'))
+                markers.append((indices[1], "close", "</a>"))
 
     return apply_markers(text, markers) if markers else text
 
@@ -826,16 +832,28 @@ def apply_markers(text: str, markers: list[tuple[int, str, str]]) -> str:
     if not markers:
         return escape_html(text)
 
-    # Sort: by offset, close tags before open tags at same position
-    markers.sort(key=lambda m: (m[0], 0 if m[1] == "close" else 1))
+    # Sort: by offset, close before open at same position, replace_close before others
+    def marker_sort_key(m: tuple[int, str, str]) -> tuple[int, int]:
+        order = {"replace_close": 0, "close": 1, "open": 2, "replace_open": 3}
+        return (m[0], order.get(m[1], 2))
+
+    markers.sort(key=marker_sort_key)
 
     result: list[str] = []
     pos = 0
-    for offset, _, tag in markers:
+    for offset, kind, tag in markers:
+        if kind == "replace_close":
+            # Skip text from previous pos to this offset (consumed by replace_open)
+            pos = offset
+            continue
         if offset > pos:
             result.append(escape_html(text[pos:offset]))
         result.append(tag)
-        pos = offset
+        if kind == "replace_open":
+            # Skip the replaced text span — pos will be advanced by replace_close
+            pos = offset
+        else:
+            pos = offset
 
     if pos < len(text):
         result.append(escape_html(text[pos:]))
