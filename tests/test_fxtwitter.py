@@ -98,19 +98,35 @@ class TestApplyFacetsUrlReplacement:
         assert "t.co" not in result
 
 
+    def test_url_facet_with_display_uses_display_as_link_text(self):
+        """Link text should use display field, not full URL, so markdownify produces [text](url)."""
+        text = "Read more: https://t.co/xyz789"
+        facets = [
+            {
+                "type": "url",
+                "indices": [11, 30],
+                "original": "https://t.co/xyz789",
+                "replacement": "https://blog.example.com/article",
+                "display": "blog.example.com/article",
+            }
+        ]
+        result = apply_facets(text, facets)
+        # The visible text between <a> tags should be the display text
+        assert ">blog.example.com/article</a>" in result
+        assert 'href="https://blog.example.com/article"' in result
+
+
 class TestFxTwitterToMarkdownUrlReplacement:
     """End-to-end: t.co links in tweet text should become full URLs in markdown output."""
 
-    def test_tco_link_replaced_in_markdown_output(self):
-        """fxtwitter_to_markdown should produce markdown with full URLs, not t.co."""
-        # Simulate what fetch_fxtwitter returns after apply_facets
-        # The text field contains HTML with proper links after apply_facets
+    def test_tco_link_becomes_markdown_link_format(self):
+        """fxtwitter_to_markdown should produce [display](full_url), not <url> autolink."""
         tweet = FxTwitterTweet(
-            text='Read this <a href="https://www.example.com/article">https://www.example.com/article</a>',
+            text='Read this <a href="https://www.example.com/article">example.com/article</a>',
             author_name="Test User",
             author_handle="testuser",
             photos=[],
         )
-        md = fxtwitter_to_markdown(tweet, "https://x.com/testuser/status/123")
-        assert "https://www.example.com/article" in md
-        assert "t.co" not in md
+        result = fxtwitter_to_markdown(tweet, "https://x.com/testuser/status/123")
+        assert "[example.com/article](https://www.example.com/article)" in result
+        assert "t.co" not in result

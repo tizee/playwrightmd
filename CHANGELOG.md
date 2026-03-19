@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-19
+
+### Fixed
+- Fix username extraction regex rejecting handles starting with digits (e.g. `0xcherry`) — FxTwitter API was silently skipped for such users, falling back to Playwright
+- Fix URL facets using `t.co` short links instead of expanded full URLs — both `href` and visible text now use the `replacement` URL from FxTwitter API
+- Fix URL links rendering as `<url>` autolinks instead of `[text](url)` markdown format — now uses facet `display` field as link text so markdownify produces proper links
+
+### Added
+- 7 new tests for FxTwitter URL replacement and facet handling (`test_fxtwitter.py`)
+
 ## [0.6.0] - 2026-03-13
 
 ### Added

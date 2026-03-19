@@ -805,8 +805,10 @@ def apply_facets(text: str, facets: list[dict]) -> str:
         elif f_type == "url" and facet.get("original"):
             url = facet.get("replacement") or facet["original"]
             if facet.get("replacement"):
-                # Replace t.co short link text with full URL
-                link_html = f'<a href="{url}">{escape_html(url)}</a>'
+                # Use display text (e.g. "example.com/path…") so markdownify
+                # produces [display](full_url) instead of <full_url> autolink.
+                link_text = escape_html(facet.get("display") or url)
+                link_html = f'<a href="{url}">{link_text}</a>'
                 markers.append((indices[0], "replace_open", link_html))
                 markers.append((indices[1], "replace_close", ""))
             else:
