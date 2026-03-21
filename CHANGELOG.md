@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-03-21
+
+### Fixed
+- Fix empty content on Wikipedia (and other sites that put feature-flag classes on `<html>`/`<body>`) — partial pattern matching now skips structural tags to prevent nuking the entire document (e.g. `<body class="skin-vector-search-vue">` matched the `"-search"` pattern)
+
+### Added
+- Regression test for structural tag protection in partial pattern removal
+
 ## [0.7.0] - 2026-03-19
 
 ### Fixed

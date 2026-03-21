@@ -1342,9 +1342,15 @@ def clean_html(html: str, selector: str | None = None, base_url: str | None = No
                 continue
 
         # Remove elements matching partial patterns in class/id
+        # Skip structural tags — sites like Wikipedia put feature-flag
+        # classes on <html>/<body> (e.g. "skin-vector-search-vue") that
+        # would match partial patterns like "-search" and nuke the page.
+        _STRUCTURAL_TAGS = frozenset({"html", "head", "body", "[document]"})
         for element in soup.find_all(True):  # True matches all tags
             # Skip elements already destroyed by a parent's decompose()
             if element.attrs is None:
+                continue
+            if element.name in _STRUCTURAL_TAGS:
                 continue
             classes = element.get("class")
             class_attr = " ".join(classes) if classes else ""

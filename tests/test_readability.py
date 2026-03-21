@@ -357,6 +357,19 @@ class TestPartialPatterns:
         result = clean_html(html)
         assert "Home &gt; Blog" not in result
 
+    def test_partial_pattern_skips_structural_tags(self):
+        """Partial patterns must not strip <html>, <body>, or <head>.
+
+        Regression: Wikipedia's <body class="...skin-vector-search-vue...">
+        matched the "-search" pattern, nuking the entire document.
+        """
+        html = """<html class="vector-feature-main-menu-disabled">
+        <body class="skin-vector-search-vue mediawiki">
+            <main><article><p>Article content</p></article></main>
+        </body></html>"""
+        result = clean_html(html)
+        assert "Article content" in result
+
     def test_decomposed_parent_children_do_not_crash(self):
         """Decomposing a parent with partial-pattern match must not crash
         when the iterator later visits its (now-detached) children."""
