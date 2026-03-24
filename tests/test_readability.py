@@ -923,6 +923,88 @@ def my_function():
         assert "Widget" not in result
         assert "Content" in result
 
+    def test_tailwind_bracket_notation_not_false_positive(self):
+        """Tailwind CSS bracket notation (e.g. [--fd-nav-height:0px]) must not
+        trigger partial patterns like 'nav-'.  Regression: tbench.ai pages
+        use ``md:[--fd-nav-height:0px]`` on <main>, which matched 'nav-'
+        and destroyed all content."""
+        html = """<html><body>
+            <main class="flex flex-1 md:[--fd-nav-height:0px] xl:[--fd-toc-width:286px]">
+                <article>
+                    <h1>First Steps</h1>
+                    <div class="prose">
+                        <p>Running the benchmark and testing your own agent.</p>
+                    </div>
+                </article>
+            </main>
+        </body></html>"""
+        result = clean_html(html)
+        assert "Running the benchmark" in result
+        assert "First Steps" in result
+
+    def test_content_found_before_partial_removal(self):
+        """Content is found on the intact DOM before partial patterns run.
+        Even if <main> has classes that match partial patterns, the pipeline
+        finds the content first and only cleans inside it."""
+        html = """<html><body>
+            <main id="nav-layout" class="menu-wrapper">
+                <article>
+                    <h1>Title</h1>
+                    <p>Important content lives here.</p>
+                </article>
+            </main>
+        </body></html>"""
+        result = clean_html(html)
+        assert "Important content" in result
+
+    def test_ancestor_protection_in_partial_removal(self):
+        """Partial pattern removal must not destroy ancestors of the main content.
+        A wrapper div with a matching class inside <article> should survive if
+        the actual content is nested under it."""
+        html = """<html><body>
+            <article>
+                <div class="nav-content-wrapper">
+                    <h1>Title</h1>
+                    <p>This is the real content nested inside a div whose class
+                    happens to contain nav- which matches partial patterns.</p>
+                </div>
+            </article>
+        </body></html>"""
+        result = clean_html(html)
+        assert "real content" in result
+
+    def test_retry_recovers_content_stripped_by_partial_patterns(self):
+        """When partial pattern removal is too aggressive and strips nearly
+        all content, the retry mechanism re-parses without partial patterns
+        and recovers the content."""
+        # Build a page where the main content is inside a div whose class
+        # triggers a partial pattern, but the content is substantial (>50 words).
+        long_text = " ".join(["word"] * 80)
+        html = f"""<html><body>
+            <article>
+                <div class="related-content-area">
+                    <p>{long_text}</p>
+                </div>
+            </article>
+        </body></html>"""
+        result = clean_html(html)
+        # Retry should have recovered the content
+        assert "word" in result
+
+    def test_no_retry_for_small_but_legitimate_pages(self):
+        """A small page with few words should NOT trigger retry that restores
+        clutter.  Retry only fires when it can recover >= 50 words."""
+        html = """<html><body>
+            <article>
+                <p>Short page.</p>
+                <div class="related-posts">You might also like these</div>
+            </article>
+        </body></html>"""
+        result = clean_html(html)
+        # related-posts should be removed, not restored by retry
+        assert "Short page" in result
+        assert "might also like" not in result
+
 
 # =============================================================================
 # html_to_markdown integration

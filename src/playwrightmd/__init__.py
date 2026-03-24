@@ -1312,79 +1312,163 @@ def find_main_content(soup):
     return candidates[0][0]
 
 
+_RE_BRACKET_EXPR = re.compile(r"\[[^\]]*\]")
+
+
 def matches_partial_pattern(value: str | None) -> bool:
-    """Check if value matches any partial removal pattern."""
+    """Check if value matches any partial removal pattern.
+
+    Tailwind CSS uses bracket notation for arbitrary values, e.g.
+    ``md:[--fd-nav-height:0px]``.  These can contain substrings like
+    ``nav-`` that would false-positive against our partial patterns.
+    Strip ``[...]`` fragments before matching so CSS custom-property
+    references don't accidentally nuke content containers.
+    """
     if not value:
         return False
-    value_lower = value.lower()
+    value_lower = _RE_BRACKET_EXPR.sub("", value).lower()
     return any(pattern in value_lower for pattern in PARTIAL_PATTERNS)
+
+
+_PARTIAL_SKIP_TAGS = frozenset({"html", "head", "body", "[document]"})
+
+# Minimum word count below which we retry with partial patterns disabled.
+# Matches defuddle's self-healing approach: aggressive extraction that
+# falls back to conservative mode when it over-strips.
+_MIN_WORD_COUNT = 50
+
+
+def _has_significant_text(element, threshold: int = 10) -> bool:
+    """Check if an element contains paragraphs with real text content.
+
+    Clutter blocks (navigation, social widgets, related posts) rarely
+    have <p> tags with substantial prose.  Content wrappers do.
+    """
+    for p in element.find_all("p"):
+        text = p.get_text(strip=True)
+        if len(text.split()) >= threshold:
+            return True
+    return False
+
+
+def _remove_by_partial_patterns(root, main_content) -> None:
+    """Remove clutter elements inside *root* that match partial patterns.
+
+    Two layers of protection prevent destroying real content:
+    1. Ancestor protection — never remove an element whose subtree
+       contains *main_content* (defuddle's ``el.contains(mainContent)``).
+    2. Content-density guard — never remove an element that contains
+       paragraphs with real text (>=20 words).  Clutter blocks rarely
+       have substantial paragraph text; content wrappers do.
+    """
+    for element in list(root.find_all(True)):
+        # Skip elements already destroyed by a parent's decompose()
+        if element.attrs is None:
+            continue
+        if element.name in _PARTIAL_SKIP_TAGS:
+            continue
+        # Ancestor protection: never remove an element that contains
+        # mainContent — this mirrors defuddle's el.contains(mainContent).
+        if main_content in element.descendants:
+            continue
+
+        classes = element.get("class")
+        class_attr = " ".join(classes) if classes else ""
+        id_attr = element.get("id") or ""
+        data_testid = element.get("data-testid") or ""
+        data_test = element.get("data-test") or ""
+
+        for attr_value in [class_attr, id_attr, data_testid, data_test]:
+            if matches_partial_pattern(attr_value):
+                # Content-density guard: don't remove elements with
+                # substantial paragraph text — they're likely content
+                # wrappers, not clutter.
+                if _has_significant_text(element):
+                    break
+                element.decompose()
+                break
+
+
+def _word_count(element) -> int:
+    """Count words in an element's text content."""
+    text = element.get_text() or ""
+    return len(text.split())
+
+
+def _postprocess(main_content, soup, base_url: str | None) -> str:
+    """Shared post-processing: URL resolution, comments, headings, dividers."""
+    if base_url:
+        resolve_relative_urls(main_content, base_url)
+
+    for comment in main_content.find_all(string=lambda text: isinstance(text, Comment)):
+        comment.extract()
+
+    normalize_headings(main_content)
+    remove_trailing_headings(main_content)
+    remove_orphaned_dividers(main_content)
+    return str(main_content)
 
 
 def clean_html(html: str, selector: str | None = None, base_url: str | None = None) -> str:
     """
     Remove scripts, styles, and other non-content elements.
-    Uses readability-style heuristics for content extraction.
+
+    Pipeline order (inspired by defuddle):
+      1. Exact selector removal  — safe, deterministic (scripts/nav/footer)
+      2. find_main_content       — on intact DOM while content is still there
+      3. Partial pattern removal  — scoped inside mainContent, with ancestor protection
+      4. Word-count retry         — if <50 words, re-parse without partial patterns
+      5. Post-processing          — URL resolution, heading normalization, etc.
     """
     soup = BeautifulSoup(html, "lxml")
 
-    # If user specified a selector, use it directly
     if selector:
         main_content = soup.select_one(selector)
         if not main_content:
             raise ValueError(f"Selector '{selector}' not found in page")
-    else:
-        # Remove unwanted elements first using exact selectors
+        return _postprocess(main_content, soup, base_url)
+
+    # Step 1: Remove deterministic non-content elements (scripts, nav, footer, forms, etc.)
+    for css_selector in EXACT_SELECTORS:
+        try:
+            for element in soup.select(css_selector):
+                element.decompose()
+        except Exception:
+            continue
+
+    # Step 2: Find main content BEFORE partial pattern removal.
+    # The DOM still has all content-bearing elements intact.
+    main_content = find_main_content(soup)
+
+    # Step 3: Remove clutter inside main_content using partial patterns.
+    # Ancestor protection prevents destroying main_content's parent chain.
+    _remove_by_partial_patterns(main_content, main_content)
+
+    # Step 4: Self-healing retry — if aggressive partial removal left
+    # too little content, re-parse from scratch without partial patterns.
+    # This mirrors defuddle's multi-level retry (wordCount < 200 → retry
+    # with removePartialSelectors: false).
+    wc = _word_count(main_content)
+    if wc < _MIN_WORD_COUNT:
+        soup_retry = BeautifulSoup(html, "lxml")
         for css_selector in EXACT_SELECTORS:
             try:
-                for element in soup.select(css_selector):
+                for element in soup_retry.select(css_selector):
                     element.decompose()
             except Exception:
                 continue
+        retry_content = find_main_content(soup_retry)
+        retry_wc = _word_count(retry_content)
+        # Keep retry only if it recovered substantially more content.
+        # The retry must itself clear the minimum threshold AND be >2x
+        # the original — this prevents small-but-legitimate pages from
+        # having clutter restored just because it adds a few words.
+        if retry_wc >= _MIN_WORD_COUNT and retry_wc > wc * 2:
+            main_content = retry_content
+            soup = soup_retry
 
-        # Remove elements matching partial patterns in class/id
-        # Skip structural tags — sites like Wikipedia put feature-flag
-        # classes on <html>/<body> (e.g. "skin-vector-search-vue") that
-        # would match partial patterns like "-search" and nuke the page.
-        _STRUCTURAL_TAGS = frozenset({"html", "head", "body", "[document]"})
-        for element in soup.find_all(True):  # True matches all tags
-            # Skip elements already destroyed by a parent's decompose()
-            if element.attrs is None:
-                continue
-            if element.name in _STRUCTURAL_TAGS:
-                continue
-            classes = element.get("class")
-            class_attr = " ".join(classes) if classes else ""
-            id_attr = element.get("id") or ""
-            data_testid = element.get("data-testid") or ""
-            data_test = element.get("data-test") or ""
-
-            # Check various attributes for partial matches
-            for attr_value in [class_attr, id_attr, data_testid, data_test]:
-                if matches_partial_pattern(attr_value):
-                    element.decompose()
-                    break
-
-        # Find main content area
-        main_content = find_main_content(soup)
-
-    # Resolve relative URLs to absolute (if base_url provided)
-    if base_url:
-        resolve_relative_urls(main_content, base_url)
-
-    # Remove HTML comments
-    for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
-        comment.extract()
-
-    # Clean up headings - convert H1 to H2, remove title-matching H2
-    normalize_headings(main_content)
-
-    # Remove trailing empty headings
-    remove_trailing_headings(main_content)
-
-    # Remove orphaned HR elements
-    remove_orphaned_dividers(main_content)
-
-    return str(main_content)
+    # Step 5: Post-processing
+    return _postprocess(main_content, soup, base_url)
 
 
 def resolve_relative_urls(element, base_url: str) -> None:
