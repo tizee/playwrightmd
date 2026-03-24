@@ -212,6 +212,47 @@ class TestExactSelectorRemoval:
             "class", ""
         ).replace("style", "")
 
+    def test_preserves_nextjs_rsc_hidden_content(self):
+        """Next.js RSC streaming places server-rendered content inside
+        <div hidden id='S:N'> containers. These must not be removed when
+        they contain substantial article text."""
+        html = """<html><body>
+            <template id="B:0"></template>
+            <div hidden id="S:0">
+                <div class="min-h-screen">
+                    <article class="pt-24">
+                        <div class="blog-content prose">
+                            <p>A potential partner asked for benchmark numbers.
+                            At the time, third-party benchmarking had us behind
+                            Cursor, Claude Code, and other agents. We did not have
+                            a systematic way to measure or improve performance.</p>
+                            <h2>What is Hill Climbing?</h2>
+                            <p>Hill climbing is an iterative improvement process
+                            for AI agents. You run an AI coding agent on a set of
+                            coding tasks, measure the score, change one thing, run
+                            again, and keep the change if the score goes up.</p>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </body></html>"""
+        result = clean_html(html)
+        assert "benchmark numbers" in result
+        assert "Hill Climbing" in result
+
+    def test_still_removes_hidden_elements_without_content(self):
+        """Plain hidden elements without substantial content should still
+        be removed (e.g. UI modals, tooltips, skip-nav targets)."""
+        html = """<html><body><article>
+            <p>Main article content here with enough words to be the winner.</p>
+            <div hidden>Skip to content</div>
+            <div hidden id="tooltip-1">Brief tooltip</div>
+        </article></body></html>"""
+        result = clean_html(html)
+        assert "Main article" in result
+        assert "Skip to content" not in result
+        assert "Brief tooltip" not in result
+
     def test_preserves_math_aria_hidden(self):
         """aria-hidden='true' with class containing 'math' should be preserved."""
         html = (

@@ -135,8 +135,8 @@ EXACT_SELECTORS = [
     "option",
     "select",
     "textarea",
-    # hidden
-    "[hidden]",
+    # hidden (note: [hidden] is handled separately by _remove_hidden_elements
+    # to preserve Next.js RSC streaming containers that hold article content)
     '[aria-hidden="true"]:not([class*="math"])',
     '[style*="display: none"]:not([class*="math"])',
     '[style*="display:none"]:not([class*="math"])',
@@ -1395,6 +1395,26 @@ def _word_count(element) -> int:
     return len(text.split())
 
 
+# Minimum word count for a [hidden] element to be considered content-bearing.
+# Next.js RSC streaming containers hold full articles (hundreds of words);
+# UI-only hidden elements (skip-nav links, tooltips) rarely exceed this.
+_HIDDEN_CONTENT_THRESHOLD = 20
+
+
+def _remove_hidden_elements(soup) -> None:
+    """Remove [hidden] elements that don't contain substantial text.
+
+    Next.js RSC streaming places server-rendered content inside
+    ``<div hidden id="S:N">`` containers.  Blindly removing all
+    ``[hidden]`` elements destroys the article body on these pages.
+    Only remove hidden elements whose text content is below the
+    threshold — real content containers are preserved.
+    """
+    for el in list(soup.select("[hidden]")):
+        if _word_count(el) < _HIDDEN_CONTENT_THRESHOLD:
+            el.decompose()
+
+
 def _postprocess(main_content, soup, base_url: str | None) -> str:
     """Shared post-processing: URL resolution, comments, headings, dividers."""
     if base_url:
@@ -1436,6 +1456,10 @@ def clean_html(html: str, selector: str | None = None, base_url: str | None = No
         except Exception:
             continue
 
+    # Step 1b: Content-aware [hidden] removal — skip elements with
+    # substantial text (Next.js RSC streaming containers, etc.)
+    _remove_hidden_elements(soup)
+
     # Step 2: Find main content BEFORE partial pattern removal.
     # The DOM still has all content-bearing elements intact.
     main_content = find_main_content(soup)
@@ -1457,6 +1481,7 @@ def clean_html(html: str, selector: str | None = None, base_url: str | None = No
                     element.decompose()
             except Exception:
                 continue
+        _remove_hidden_elements(soup_retry)
         retry_content = find_main_content(soup_retry)
         retry_wc = _word_count(retry_content)
         # Keep retry only if it recovered substantially more content.
