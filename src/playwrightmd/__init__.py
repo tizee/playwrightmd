@@ -1792,6 +1792,14 @@ def _is_content_empty(html: str) -> bool:
         return True
 
 
+def _extract_net_error(exc: Exception) -> str:
+    """Extract 'net::ERR_*' code from a Playwright error message."""
+    import re
+
+    match = re.search(r"net::ERR_\w+", str(exc))
+    return match.group(0) if match else "net::ERR_UNKNOWN"
+
+
 def get_html_content(
     input_arg: str | None,
     input_type: InputType,
@@ -1832,6 +1840,7 @@ def get_html_content(
                 return (fxtwitter_to_markdown(tweet, url), True, url)
 
         # Lightweight HTTP prefetch — may short-circuit Playwright
+        prefetched_html: str | None = None
         try:
             content, content_type = http_prefetch(url, timeout, user_agent)
             if is_markdown_content_type(content_type):
@@ -1839,6 +1848,7 @@ def get_html_content(
             # For HTML responses, skip Playwright if --no-js
             if no_js:
                 return (content, False, url)
+            prefetched_html = content
         except urllib.error.URLError:
             if no_js:
                 raise
@@ -1852,7 +1862,21 @@ def get_html_content(
             headless=headless,
             wait_until=wait_until,
         )
-        html = fetch_with_playwright(url, **playwright_kwargs)
+        try:
+            html = fetch_with_playwright(url, **playwright_kwargs)
+        except PlaywrightError as exc:
+            # Cloudflare (and similar WAFs) may kill the connection at the TLS
+            # layer based on headless-Chromium fingerprinting (JA3/JA4), causing
+            # net::ERR_CONNECTION_CLOSED / _RESET / ERR_SSL_*.  When the HTTP
+            # prefetch already succeeded, use that HTML instead of crashing.
+            if prefetched_html is not None and "net::ERR_" in str(exc):
+                click.echo(
+                    f"Playwright blocked ({_extract_net_error(exc)}), "
+                    "using prefetched HTML.",
+                    err=True,
+                )
+                return (prefetched_html, False, url)
+            raise
 
         # Auto-retry with networkidle for SPA/Next.js pages that need hydration.
         # Only retry when using the default wait_until (domcontentloaded) — if the

@@ -531,6 +531,142 @@ computational tasks that involve reasoning over many steps.</p>
 </main></div></body></html>"""
 
 
+class TestPlaywrightConnectionErrorFallback:
+    """When Playwright fails with a connection error (e.g. net::ERR_CONNECTION_CLOSED
+    from Cloudflare TLS fingerprint blocking), but HTTP prefetch already succeeded,
+    get_html_content should fall back to the prefetched HTML instead of crashing."""
+
+    _PREFETCHED_HTML = (
+        "<html><body><h1>Anthropic Engineering</h1>"
+        "<article><p>" + "Claude Code auto mode is a powerful feature. " * 8 + "</p>"
+        "</article></body></html>"
+    )
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_connection_closed_falls_back_to_prefetched_html(
+        self, mock_prefetch, mock_playwright
+    ):
+        """net::ERR_CONNECTION_CLOSED from Playwright should return prefetched HTML."""
+        from patchright.sync_api import Error as PlaywrightError
+
+        mock_prefetch.return_value = (self._PREFETCHED_HTML, "text/html; charset=utf-8")
+        mock_playwright.side_effect = PlaywrightError(
+            "Page.goto: net::ERR_CONNECTION_CLOSED at https://www.anthropic.com/engineering/claude-code-auto-mode"
+        )
+
+        content, is_markdown, base_url = get_html_content(
+            "https://www.anthropic.com/engineering/claude-code-auto-mode",
+            InputType.URL,
+        )
+
+        assert is_markdown is False
+        assert "Anthropic Engineering" in content
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_connection_reset_falls_back_to_prefetched_html(
+        self, mock_prefetch, mock_playwright
+    ):
+        """net::ERR_CONNECTION_RESET should also trigger prefetch fallback."""
+        from patchright.sync_api import Error as PlaywrightError
+
+        mock_prefetch.return_value = (self._PREFETCHED_HTML, "text/html; charset=utf-8")
+        mock_playwright.side_effect = PlaywrightError(
+            "Page.goto: net::ERR_CONNECTION_RESET at https://example.com"
+        )
+
+        content, is_markdown, base_url = get_html_content(
+            "https://example.com",
+            InputType.URL,
+        )
+
+        assert is_markdown is False
+        assert "Anthropic Engineering" in content
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_ssl_error_falls_back_to_prefetched_html(
+        self, mock_prefetch, mock_playwright
+    ):
+        """SSL protocol errors from Playwright should trigger prefetch fallback."""
+        from patchright.sync_api import Error as PlaywrightError
+
+        mock_prefetch.return_value = (self._PREFETCHED_HTML, "text/html; charset=utf-8")
+        mock_playwright.side_effect = PlaywrightError(
+            "Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://example.com"
+        )
+
+        content, is_markdown, base_url = get_html_content(
+            "https://example.com",
+            InputType.URL,
+        )
+
+        assert is_markdown is False
+        assert "Anthropic Engineering" in content
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_no_fallback_when_prefetch_also_failed(
+        self, mock_prefetch, mock_playwright
+    ):
+        """If prefetch also failed (URLError), Playwright error should propagate."""
+        from urllib.error import URLError
+        from patchright.sync_api import Error as PlaywrightError
+
+        mock_prefetch.side_effect = URLError("Connection refused")
+        mock_playwright.side_effect = PlaywrightError(
+            "Page.goto: net::ERR_CONNECTION_CLOSED at https://example.com"
+        )
+
+        with pytest.raises(PlaywrightError):
+            get_html_content(
+                "https://example.com",
+                InputType.URL,
+            )
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_fallback_emits_stderr_warning(
+        self, mock_prefetch, mock_playwright, capsys
+    ):
+        """Falling back to prefetched HTML should log a hint to stderr."""
+        from patchright.sync_api import Error as PlaywrightError
+
+        mock_prefetch.return_value = (self._PREFETCHED_HTML, "text/html; charset=utf-8")
+        mock_playwright.side_effect = PlaywrightError(
+            "Page.goto: net::ERR_CONNECTION_CLOSED at https://example.com"
+        )
+
+        get_html_content(
+            "https://example.com",
+            InputType.URL,
+        )
+
+        captured = capsys.readouterr()
+        assert "prefetch" in captured.err.lower() or "fallback" in captured.err.lower()
+
+    @patch("playwrightmd.fetch_with_playwright")
+    @patch("playwrightmd.http_prefetch")
+    def test_non_connection_playwright_error_still_raises(
+        self, mock_prefetch, mock_playwright
+    ):
+        """Playwright errors unrelated to connection (e.g. timeout) should NOT
+        silently fall back — they indicate a different class of problem."""
+        from patchright.sync_api import TimeoutError as PlaywrightTimeout
+
+        mock_prefetch.return_value = (self._PREFETCHED_HTML, "text/html; charset=utf-8")
+        mock_playwright.side_effect = PlaywrightTimeout(
+            "Page.goto: Timeout 30000ms exceeded."
+        )
+
+        with pytest.raises(PlaywrightTimeout):
+            get_html_content(
+                "https://example.com",
+                InputType.URL,
+            )
+
+
 class TestEmptyContentAutoRetry:
     """When Playwright returns HTML with no extractable content (e.g. Next.js
     SSG pages where React hasn't hydrated yet), get_html_content should
