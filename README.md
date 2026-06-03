@@ -27,26 +27,10 @@ Install globally from a source checkout to run `playwrightmd` directly:
 ```bash
 git clone https://github.com/tizee/playwrightmd.git
 cd playwrightmd
-uv tool install .
+uv tool install --force --upgrade .
 ```
 
-Before installing Chromium, verify whether the Patchright Chromium revision required by this checkout is already installed:
-
-```bash
-uv tool run --from . python - <<'PY'
-from pathlib import Path
-
-from patchright.sync_api import sync_playwright
-
-p = sync_playwright().start()
-path = Path(p.chromium.executable_path)
-print(path)
-p.stop()
-raise SystemExit(0 if path.exists() else 1)
-PY
-```
-
-If the verification command exits non-zero, install patched Chromium once:
+Install patched Chromium the first time:
 
 ```bash
 # macOS:
@@ -85,20 +69,7 @@ cd playwrightmd
 # Install dependencies
 uv sync
 
-# Verify whether Patchright Chromium is already installed
-uv run python - <<'PY'
-from pathlib import Path
-
-from patchright.sync_api import sync_playwright
-
-p = sync_playwright().start()
-path = Path(p.chromium.executable_path)
-print(path)
-p.stop()
-raise SystemExit(0 if path.exists() else 1)
-PY
-
-# Install patched Chromium if the verification command exits non-zero
+# Install patched Chromium the first time
 uv run patchright install chromium          # macOS
 uv run patchright install --with-deps chromium  # Linux
 
@@ -520,26 +491,12 @@ This means:
 - No duplication across different Python environments
 - Browser size: ~90MB for Chromium
 
-To check whether the Chromium revision required by the current Patchright environment is already installed:
+If `playwrightmd` reports `Browser not found` even though `~/Library/Caches/ms-playwright/` already contains Chromium, the installed global tool environment may be using an older Patchright version that expects a different Chromium revision. Avoid downloading another old revision by upgrading/reinstalling the global tool environment:
 
 ```bash
-uv run python - <<'PY'
-from pathlib import Path
-
-from patchright.sync_api import sync_playwright
-
-p = sync_playwright().start()
-path = Path(p.chromium.executable_path)
-print(path)
-p.stop()
-raise SystemExit(0 if path.exists() else 1)
-PY
-```
-
-If the command prints a path and exits with status `0`, the browser is already installed. If it exits non-zero, install it:
-
-```bash
-uv run patchright install chromium
+cd /path/to/playwrightmd
+uv tool install --force --upgrade .
+playwrightmd https://example.com
 ```
 
 ### `--with-deps` flag (Linux)
