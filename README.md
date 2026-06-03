@@ -1,13 +1,13 @@
 # playwrightmd
 
-Convert HTML to Markdown using Playwright. Handles JavaScript-rendered content, bypasses common bot detection, and extracts clean content from documentation sites.
+Convert HTML to Markdown using Patchright, a Playwright-compatible browser automation library. Handles JavaScript-rendered content, bypasses common bot detection, and extracts clean content from documentation sites.
 
 ## Features
 
 - **[Cloudflare Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/)**: Automatically fetches pre-converted markdown from Cloudflare-enabled sites (~80% token reduction, no browser needed)
 - **FxTwitter API for X/Twitter**: Transparently fetches tweets and articles from x.com/twitter.com via FxTwitter API — bypasses anti-scraping without browser launch
-- **HTTP prefetch with Playwright fallback**: Lightweight HTTP fetch first, Playwright only when JS rendering is needed
-- **JavaScript rendering**: Uses Playwright to render SPAs and dynamic content
+- **HTTP prefetch with Patchright fallback**: Lightweight HTTP fetch first, Patchright only when JS rendering is needed
+- **JavaScript rendering**: Uses Patchright to render SPAs and dynamic content
 - **Bot detection bypass**: Handles Cloudflare and similar protections
 - **YAML frontmatter**: Automatically extracts page metadata (title, author, published date, description) from Open Graph, JSON-LD, and meta tags — prepended as YAML frontmatter for structured agent consumption
 - **Smart content extraction**: Advanced readability rules — removes sidebars, navigation, ads, metadata, and boilerplate using 600+ patterns
@@ -20,21 +20,40 @@ Convert HTML to Markdown using Playwright. Handles JavaScript-rendered content, 
 
 ## Installation
 
-### Global installation with uv (recommended)
+### Install from source with uv (recommended)
 
-Install globally to run `playwrightmd` directly:
+Install globally from a source checkout to run `playwrightmd` directly:
 
 ```bash
-# From local directory
+git clone https://github.com/tizee/playwrightmd.git
 cd playwrightmd
 uv tool install .
+```
 
-# Install Playwright browsers (required once)
+Before installing Chromium, verify whether the Patchright Chromium revision required by this checkout is already installed:
+
+```bash
+uv tool run --from . python - <<'PY'
+from pathlib import Path
+
+from patchright.sync_api import sync_playwright
+
+p = sync_playwright().start()
+path = Path(p.chromium.executable_path)
+print(path)
+p.stop()
+raise SystemExit(0 if path.exists() else 1)
+PY
+```
+
+If the verification command exits non-zero, install patched Chromium once:
+
+```bash
 # macOS:
-uv tool run --from . playwright install chromium
+uv tool run --from . patchright install chromium
 
 # Linux (includes system dependencies):
-uv tool run --from . playwright install --with-deps chromium
+uv tool run --from . patchright install --with-deps chromium
 ```
 
 Then run directly:
@@ -66,9 +85,22 @@ cd playwrightmd
 # Install dependencies
 uv sync
 
-# Install Playwright browsers
-uv run playwright install chromium          # macOS
-uv run playwright install --with-deps chromium  # Linux
+# Verify whether Patchright Chromium is already installed
+uv run python - <<'PY'
+from pathlib import Path
+
+from patchright.sync_api import sync_playwright
+
+p = sync_playwright().start()
+path = Path(p.chromium.executable_path)
+print(path)
+p.stop()
+raise SystemExit(0 if path.exists() else 1)
+PY
+
+# Install patched Chromium if the verification command exits non-zero
+uv run patchright install chromium          # macOS
+uv run patchright install --with-deps chromium  # Linux
 
 # Run the tool
 uv run playwrightmd https://example.com
@@ -471,11 +503,11 @@ Prioritizes content from:
 ## Requirements
 
 - Python 3.13+
-- Playwright Chromium browser
+- Patchright Chromium browser
 
 ## Browser Management
 
-Playwright stores browsers in a **shared system cache**, not per-project:
+Patchright stores browsers in the Playwright-compatible **shared system cache**, not per-project:
 
 | OS | Location |
 |----|----------|
@@ -488,12 +520,34 @@ This means:
 - No duplication across different Python environments
 - Browser size: ~90MB for Chromium
 
+To check whether the Chromium revision required by the current Patchright environment is already installed:
+
+```bash
+uv run python - <<'PY'
+from pathlib import Path
+
+from patchright.sync_api import sync_playwright
+
+p = sync_playwright().start()
+path = Path(p.chromium.executable_path)
+print(path)
+p.stop()
+raise SystemExit(0 if path.exists() else 1)
+PY
+```
+
+If the command prints a path and exits with status `0`, the browser is already installed. If it exits non-zero, install it:
+
+```bash
+uv run patchright install chromium
+```
+
 ### `--with-deps` flag (Linux)
 
 On Linux, Chromium requires system libraries (`libnss3`, `libatk1.0`, `libcups2`, etc.). Use `--with-deps` to install them automatically:
 
 ```bash
-playwright install --with-deps chromium
+patchright install --with-deps chromium
 ```
 
 | OS | `--with-deps` needed? |
@@ -504,11 +558,11 @@ playwright install --with-deps chromium
 | Linux (Docker) | Yes - containers are minimal |
 
 ```bash
-# Check installed browsers
+# Inspect browser cache directories
 ls ~/Library/Caches/ms-playwright/   # macOS
 ls ~/.cache/ms-playwright/           # Linux
 
-# Remove all Playwright browsers (if needed)
+# Remove all cached browsers (if needed)
 rm -rf ~/Library/Caches/ms-playwright/
 ```
 
