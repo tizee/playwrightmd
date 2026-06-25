@@ -1607,6 +1607,21 @@ def _extract_code_language(el) -> str | None:
     return None
 
 
+_DATA_IMAGE_MARKDOWN_RE = re.compile(
+    r"(!\[[^\]]*\]\()(data:image/[^,\s\)]*;base64,)([A-Za-z0-9+/=\r\n]+)(\))"
+)
+
+
+def replace_data_image_urls(markdown: str) -> str:
+    """Replace embedded base64 image data URLs with compact placeholders."""
+
+    def replace_image(match: re.Match) -> str:
+        payload = re.sub(r"\s+", "", match.group(3))
+        return f"{match.group(1)}{match.group(2)}[omitted:{len(payload)}-chars]{match.group(4)}"
+
+    return _DATA_IMAGE_MARKDOWN_RE.sub(replace_image, markdown)
+
+
 def html_to_markdown(
     html: str,
     strip_tags: list[str] | None = None,
@@ -1624,6 +1639,7 @@ def html_to_markdown(
         code_language_callback=lambda el: _extract_code_language(el),
         strip=strip_tags or [],
     )
+    markdown = replace_data_image_urls(markdown)
 
     # Clean up excessive whitespace
     lines = markdown.split("\n")
@@ -1650,6 +1666,9 @@ def truncate_markdown_links(markdown: str, max_length: int = 42) -> str:
         text = match.group(1)
         url = match.group(2)
         title = match.group(3) or ""
+
+        if url.startswith("data:image/") and "[omitted:" in url:
+            return match.group(0)
 
         # Use wcswidth to calculate display width (handles CJK/Unicode correctly)
         if wcswidth(url) > max_length:
@@ -2052,6 +2071,9 @@ def main(
                 frontmatter = format_frontmatter(extract_metadata(content, url))
                 if frontmatter:
                     out_content = frontmatter + "\n" + out_content
+
+        if not raw:
+            out_content = replace_data_image_urls(out_content)
 
         # Apply link truncation if requested
         if truncate_link is not None:

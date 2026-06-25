@@ -275,7 +275,7 @@ wheels = [
 
 [[package]]
 name = "playwrightmd"
-version = "0.7.1"
+version = "0.7.2"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },

@@ -1105,6 +1105,22 @@ class TestHtmlToMarkdown:
         result = html_to_markdown(html)
         assert "some code" in result
 
+    def test_data_image_payload_is_replaced_with_placeholder(self):
+        """Embedded base64 image payloads are omitted from markdown output."""
+        payload = "a" * 1200
+        html = f"""<html><body>
+            <article>
+                <p>Screenshot from the post.</p>
+                <img src="data:image/png;base64,{payload}" alt="Inline screenshot">
+            </article>
+        </body></html>"""
+
+        result = html_to_markdown(html)
+
+        assert payload not in result
+        assert "data:image/png;base64,[omitted:1200-chars]" in result
+        assert "![Inline screenshot]" in result
+
     def test_strip_tags_option(self):
         """strip_tags parameter removes specified tags from output."""
         html = """<html><body>

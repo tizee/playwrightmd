@@ -398,3 +398,17 @@ class TestMainFrontmatterIntegration:
         assert result.exit_code == 0
         # Should have exactly one frontmatter block, not two
         assert result.output.count("---\n") <= 2  # opening + closing
+
+    @patch("playwrightmd.http_prefetch")
+    def test_cloudflare_markdown_omits_data_image_payload(self, mock_prefetch):
+        """Raw markdown URL responses should not leak embedded base64 image payloads."""
+        payload = "a" * 1200
+        existing_md = f"# Heading\n\n![Inline screenshot](data:image/png;base64,{payload})\n"
+        mock_prefetch.return_value = (existing_md, "text/markdown")
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["https://example.com/page"])
+
+        assert result.exit_code == 0
+        assert payload not in result.output
+        assert "data:image/png;base64,[omitted:1200-chars]" in result.output

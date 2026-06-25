@@ -299,3 +299,8 @@ class TestTruncateMarkdownLinks:
         markdown = "This is just plain text without any links."
         result = truncate_markdown_links(markdown, max_length=10)
         assert result == markdown
+
+    def test_data_image_placeholder_not_truncated(self):
+        markdown = "![Inline screenshot](data:image/png;base64,[omitted:1200-chars])"
+        result = truncate_markdown_links(markdown, max_length=20)
+        assert result == markdown
