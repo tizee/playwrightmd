@@ -1,4 +1,4 @@
-.PHONY: install sync test dev clean help fmt lint typecheck
+.PHONY: install sync test dev clean help fmt lint typecheck clean-browsers _warn-orphans
 
 # Patchright (patched playwright) browsers are stored in a shared system cache:
 #   macOS:  ~/Library/Caches/ms-playwright/
@@ -8,11 +8,20 @@
 
 STAMP := .patchright-installed
 
+# Cross-platform browser cache path
+BROWSER_CACHE := $(shell \
+	if [ "$$(uname -s)" = "Darwin" ]; then \
+		echo "$$HOME/Library/Caches/ms-playwright"; \
+	else \
+		echo "$$HOME/.cache/ms-playwright"; \
+	fi)
+
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: sync $(STAMP) ## Full setup: sync deps + install browsers
+	@$(MAKE) --no-print-directory _warn-orphans
 
 sync: ## Sync Python dependencies
 	uv sync
@@ -21,8 +30,48 @@ $(STAMP): uv.lock
 	uv run patchright install chromium
 	@touch $@
 
-install-tool: install ## Install as global uv tool
+_warn-orphans:
+	@cache="$(BROWSER_CACHE)"; \
+	if [ ! -d "$$cache" ]; then exit 0; fi; \
+	active=$$(uv run python -c "\
+import json, os, glob; \
+from importlib.resources import files; \
+def revs_from_path(p): \
+    bjson = os.path.join(p, 'package', 'browsers.json'); \
+    if not os.path.isfile(bjson): return []; \
+    b = json.loads(open(bjson).read()); \
+    return [x['revision'] for x in b['browsers'] if x['name'] in ('chromium','chromium-headless-shell')]; \
+all_revs = set(); \
+try: \
+    b = json.loads(files('patchright.driver').joinpath('package/browsers.json').read_text()); \
+    all_revs.update(x['revision'] for x in b['browsers'] if x['name'] in ('chromium','chromium-headless-shell')); \
+except Exception: pass; \
+tools = os.path.expanduser('~/.local/share/uv/tools'); \
+if os.path.isdir(tools): \
+    for d in os.listdir(tools): \
+        for p in glob.glob(os.path.join(tools, d, 'lib/python*/site-packages/patchright/driver')): \
+            all_revs.update(revs_from_path(p)); \
+print(','.join(sorted(all_revs))) if all_revs else print('')" 2>/dev/null || echo ""); \
+	if [ -z "$$active" ]; then exit 0; fi; \
+	orphans=$$(find "$$cache" -maxdepth 1 -type d \( -name 'chromium-*' -o -name 'chromium_headless_shell-*' \) \
+		| while read d; do \
+			rev=$$(basename "$$d" | grep -oE '[0-9]+$$'); \
+			if ! echo "$$active" | grep -qw "$$rev"; then \
+				du -sh "$$d" 2>/dev/null; \
+			fi; \
+		done); \
+	if [ -n "$$orphans" ]; then \
+		echo ""; \
+		echo "  WARNING: Orphaned browser revisions found in $$cache"; \
+		echo "$$orphans" | while read line; do echo "    $$line"; done; \
+		echo ""; \
+		echo "  Run 'make clean-browsers' to reclaim disk space."; \
+		echo ""; \
+	fi
+
+install-tool: install ## Install as global uv tool + install browsers for it
 	uv tool install . --reinstall
+	uv tool run --from playwrightmd patchright install chromium
 
 test: ## Run tests
 	uv run pytest tests/ -v
@@ -37,6 +86,48 @@ typecheck: ## Type check with pyright
 	uv run pyright
 
 dev: install test ## Setup dev environment and run tests
+
+clean-browsers: ## Remove orphaned browser revisions from shared cache
+	@cache="$(BROWSER_CACHE)"; \
+	if [ ! -d "$$cache" ]; then echo "No browser cache found at $$cache"; exit 0; fi; \
+	active=$$(uv run python -c "\
+import json, os, glob; \
+from importlib.resources import files; \
+def revs_from_path(p): \
+    bjson = os.path.join(p, 'package', 'browsers.json'); \
+    if not os.path.isfile(bjson): return []; \
+    b = json.loads(open(bjson).read()); \
+    return [x['revision'] for x in b['browsers'] if x['name'] in ('chromium','chromium-headless-shell')]; \
+all_revs = set(); \
+try: \
+    b = json.loads(files('patchright.driver').joinpath('package/browsers.json').read_text()); \
+    all_revs.update(x['revision'] for x in b['browsers'] if x['name'] in ('chromium','chromium-headless-shell')); \
+except Exception: pass; \
+tools = os.path.expanduser('~/.local/share/uv/tools'); \
+if os.path.isdir(tools): \
+    for d in os.listdir(tools): \
+        for p in glob.glob(os.path.join(tools, d, 'lib/python*/site-packages/patchright/driver')): \
+            all_revs.update(revs_from_path(p)); \
+print(','.join(sorted(all_revs))) if all_revs else print('')" 2>/dev/null || echo ""); \
+	if [ -z "$$active" ]; then echo "Cannot determine active browser revisions. Run 'make install' first."; exit 1; fi; \
+	orphans=$$(find "$$cache" -maxdepth 1 -type d \( -name 'chromium-*' -o -name 'chromium_headless_shell-*' \) \
+		| while read d; do \
+			rev=$$(basename "$$d" | grep -oE '[0-9]+$$'); \
+			if ! echo "$$active" | grep -qw "$$rev"; then \
+				echo "$$d"; \
+			fi; \
+		done); \
+	if [ -z "$$orphans" ]; then \
+		echo "No orphaned browser revisions found."; \
+	else \
+		echo "Removing orphaned browser revisions:"; \
+		for d in $$orphans; do \
+			size=$$(du -sh "$$d" 2>/dev/null | cut -f1); \
+			echo "  $$d ($$size)"; \
+			rm -rf "$$d"; \
+		done; \
+		echo "Done."; \
+	fi
 
 clean: ## Remove build artifacts and caches
 	rm -rf dist/ build/ *.egg-info .pytest_cache $(STAMP) .playwright-installed
