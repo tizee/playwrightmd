@@ -33,25 +33,7 @@ $(STAMP): uv.lock
 _warn-orphans:
 	@cache="$(BROWSER_CACHE)"; \
 	if [ ! -d "$$cache" ]; then exit 0; fi; \
-	active=$$(uv run python -c "\
-import json, os, glob; \
-from importlib.resources import files; \
-def revs_from_path(p): \
-    bjson = os.path.join(p, 'package', 'browsers.json'); \
-    if not os.path.isfile(bjson): return []; \
-    b = json.loads(open(bjson).read()); \
-    return [x['revision'] for x in b['browsers'] if x['name'] in ('chromium','chromium-headless-shell')]; \
-all_revs = set(); \
-try: \
-    b = json.loads(files('patchright.driver').joinpath('package/browsers.json').read_text()); \
-    all_revs.update(x['revision'] for x in b['browsers'] if x['name'] in ('chromium','chromium-headless-shell')); \
-except Exception: pass; \
-tools = os.path.expanduser('~/.local/share/uv/tools'); \
-if os.path.isdir(tools): \
-    for d in os.listdir(tools): \
-        for p in glob.glob(os.path.join(tools, d, 'lib/python*/site-packages/patchright/driver')): \
-            all_revs.update(revs_from_path(p)); \
-print(','.join(sorted(all_revs))) if all_revs else print('')" 2>/dev/null || echo ""); \
+	active=$$(uv run python _check_browsers.py 2>/dev/null || echo ""); \
 	if [ -z "$$active" ]; then exit 0; fi; \
 	orphans=$$(find "$$cache" -maxdepth 1 -type d \( -name 'chromium-*' -o -name 'chromium_headless_shell-*' \) \
 		| while read d; do \
@@ -69,9 +51,14 @@ print(','.join(sorted(all_revs))) if all_revs else print('')" 2>/dev/null || ech
 		echo ""; \
 	fi
 
-install-tool: install ## Install as global uv tool + install browsers for it
+install-tool: sync ## Install as global uv tool + install browsers for it
+	uv lock --upgrade-package patchright
+	uv sync
+	uv run patchright install chromium
+	@touch $(STAMP)
 	uv tool install . --reinstall
 	uv tool run --from playwrightmd patchright install chromium
+	@$(MAKE) --no-print-directory _warn-orphans
 
 test: ## Run tests
 	uv run pytest tests/ -v
@@ -90,25 +77,7 @@ dev: install test ## Setup dev environment and run tests
 clean-browsers: ## Remove orphaned browser revisions from shared cache
 	@cache="$(BROWSER_CACHE)"; \
 	if [ ! -d "$$cache" ]; then echo "No browser cache found at $$cache"; exit 0; fi; \
-	active=$$(uv run python -c "\
-import json, os, glob; \
-from importlib.resources import files; \
-def revs_from_path(p): \
-    bjson = os.path.join(p, 'package', 'browsers.json'); \
-    if not os.path.isfile(bjson): return []; \
-    b = json.loads(open(bjson).read()); \
-    return [x['revision'] for x in b['browsers'] if x['name'] in ('chromium','chromium-headless-shell')]; \
-all_revs = set(); \
-try: \
-    b = json.loads(files('patchright.driver').joinpath('package/browsers.json').read_text()); \
-    all_revs.update(x['revision'] for x in b['browsers'] if x['name'] in ('chromium','chromium-headless-shell')); \
-except Exception: pass; \
-tools = os.path.expanduser('~/.local/share/uv/tools'); \
-if os.path.isdir(tools): \
-    for d in os.listdir(tools): \
-        for p in glob.glob(os.path.join(tools, d, 'lib/python*/site-packages/patchright/driver')): \
-            all_revs.update(revs_from_path(p)); \
-print(','.join(sorted(all_revs))) if all_revs else print('')" 2>/dev/null || echo ""); \
+	active=$$(uv run python _check_browsers.py 2>/dev/null || echo ""); \
 	if [ -z "$$active" ]; then echo "Cannot determine active browser revisions. Run 'make install' first."; exit 1; fi; \
 	orphans=$$(find "$$cache" -maxdepth 1 -type d \( -name 'chromium-*' -o -name 'chromium_headless_shell-*' \) \
 		| while read d; do \
